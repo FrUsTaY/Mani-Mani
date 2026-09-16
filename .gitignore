@@ -1,0 +1,30 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+local.properties
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iws
+
+# Build folders and artifacts
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.dex
+
+# Secrets and environment
+.env
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ensure keystore needed for build is tracked
+!debug.keystore
+!gradle/wrapper/gradle-wrapper.jar

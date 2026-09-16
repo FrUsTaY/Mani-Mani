@@ -1,0 +1,6 @@
+{
+  "name": "Мани-мани",
+  "description": "Личный финансовый трекер: учёт доходов и расходов, мультивалютные счета, аналитика, бюджеты и цели.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
