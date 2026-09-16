@@ -45,4 +45,62 @@ class BankNotificationParserTest {
         assertEquals(450.0, result?.amount ?: 0.0, 0.01)
         assertEquals("транспорт", result?.matchedCategoryKeyword)
     }
+
+    @Test
+    fun testParseZenmoneyWithDecimalCommaAndMerchant() {
+        val title = "98,98 ₽, Продукты, Красное&Белое"
+        val text = "Продукты с 10 сентября *** ₽. В плане ещё *.\nПолная статистика доступна по подписке.\nВТБ, Доступно: 14 359,83 ₽"
+        val result = BankNotificationParser.parse(text, title = title, packageName = "ru.zenmoney.androidsub")
+
+        assertNotNull(result)
+        assertEquals("ВТБ", result?.bankName)
+        assertEquals("EXPENSE", result?.type)
+        assertEquals(98.98, result?.amount ?: 0.0, 0.001)
+        assertEquals("RUB", result?.currency)
+        assertEquals("Красное&Белое", result?.merchant)
+        assertEquals("Продукты", result?.matchedCategoryKeyword)
+        assertNull(result?.cardLast4)
+    }
+
+    @Test
+    fun testParseZenmoneyTransferWithAccount() {
+        val title = "10 ₽, Семейные переводы, Алексей Андреевич С."
+        val text = "Семейные переводы с 10 сентября *** ₽ (*% от общего расхода).\nИюль, Доступно: 15 379,69 ₽"
+        val result = BankNotificationParser.parse(text, title = title, packageName = "ru.zenmoney.androidsub")
+
+        assertNotNull(result)
+        assertEquals("Июль", result?.bankName)
+        assertEquals("TRANSFER", result?.type)
+        assertEquals(10.0, result?.amount ?: 0.0, 0.001)
+        assertEquals("Алексей Андреевич С.", result?.merchant)
+        assertEquals("Семейные переводы", result?.matchedCategoryKeyword)
+    }
+
+    @Test
+    fun testParseZenmoneyWithoutCounterparty() {
+        val title = "500 ₽, Кафе"
+        val text = "ВТБ, Доступно: 5 000 ₽"
+        val result = BankNotificationParser.parse(text, title = title, packageName = "ru.zenmoney.android")
+
+        assertNotNull(result)
+        assertEquals("ВТБ", result?.bankName)
+        assertEquals("EXPENSE", result?.type)
+        assertEquals(500.0, result?.amount ?: 0.0, 0.001)
+        assertEquals("Кафе", result?.merchant)
+        assertEquals("Кафе", result?.matchedCategoryKeyword)
+    }
+
+    @Test
+    fun testMatchCategoryIdCaseInsensitive() {
+        val categories = listOf(
+            com.example.data.entity.CategoryEntity(id = 1, name = "Продукты", type = "EXPENSE", iconName = "cart", colorHex = "#00FF00"),
+            com.example.data.entity.CategoryEntity(id = 2, name = "Кафе и рестораны", type = "EXPENSE", iconName = "coffee", colorHex = "#00FF00"),
+            com.example.data.entity.CategoryEntity(id = 3, name = "Переводы", type = "EXPENSE", iconName = "swap", colorHex = "#00FF00")
+        )
+
+        assertEquals(1L, BankNotificationParser.matchCategoryId(categories, "Продукты"))
+        assertEquals(1L, BankNotificationParser.matchCategoryId(categories, "продукты"))
+        assertEquals(2L, BankNotificationParser.matchCategoryId(categories, "Кафе"))
+        assertEquals(3L, BankNotificationParser.matchCategoryId(categories, "Семейные переводы"))
+    }
 }

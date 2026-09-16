@@ -60,62 +60,79 @@ object BankNotificationParser {
         val isZenmoney = packageName == "ru.zenmoney.androidsub" || packageName == "ru.zenmoney.android"
         
         if (isZenmoney && title != null) {
-            // Zenmoney format: "209,97 ₽, Продукты, Самбери" or "10 ₽, Семейные переводы, Алексей Андреевич С."
-            val parts = title.split(",").map { it.trim() }
-            if (parts.size >= 2) {
-                // Parse amount from parts[0]
-                val amountStr = parts[0].replace("[^0-9.,]".toRegex(), "").replace(",", ".")
-                val amount = amountStr.toDoubleOrNull() ?: 0.0
-                
-                if (amount > 0) {
-                    val categoryName = parts.getOrNull(1) ?: ""
-                    val merchant = parts.getOrNull(2) ?: categoryName.ifEmpty { "Операция Дзен-мани" }
-                    
-                    // Determine currency
-                    val currencyStr = parts[0].lowercase()
-                    val currency = when {
-                        currencyStr.contains("$") || currencyStr.contains("usd") -> "USD"
-                        currencyStr.contains("€") || currencyStr.contains("eur") -> "EUR"
-                        currencyStr.contains("₸") || currencyStr.contains("kzt") -> "KZT"
-                        currencyStr.contains("byn") -> "BYN"
-                        currencyStr.contains("cny") -> "CNY"
-                        else -> "RUB"
-                    }
-                    
-                    // Try to extract bank from text "ВТБ, Доступно:..."
-                    var bankName = "Дзен-мани"
-                    // Find text before "Доступно:"
-                    val textParts = text.split("Доступно:")
-                    if (textParts.size == 2) {
-                        val bankCandidate = textParts[0].split(".").lastOrNull()?.trim()
-                        if (bankCandidate != null && bankCandidate.isNotBlank()) {
-                            // "Полная статистика доступна по подписке. ВТБ,"
-                            val b = bankCandidate.trimEnd(',')
-                            if (b.isNotBlank() && b.length < 15) {
-                                bankName = b
-                            }
-                        }
-                    }
+            // Zenmoney format in title:
+            // "98,98 ₽, Продукты, Красное&Белое"
+            // "209,97 ₽, Продукты, Самбери"
+            // "10 ₽, Семейные переводы, Алексей Андреевич С."
+            // "500 ₽, Кафе"
+            val zenPattern = Regex("""^([0-9\s\u00A0]+(?:[.,][0-9]{1,2})?\s*(?:₽|руб\.?|rub|р\.|\$|usd|€|eur|₸|kzt|byn|cny)?)\s*,\s*([^,]+?)(?:,\s*(.+))?$""", RegexOption.IGNORE_CASE)
+            val match = zenPattern.find(title.trim())
 
-                    // Guessing type (Zenmoney does not explicitly say income or expense in title usually, 
-                    // but we can assume expense unless category gives it away)
-                    var type = "EXPENSE"
-                    if (categoryName.lowercase().contains("доход") || categoryName.lowercase().contains("зарплата") || categoryName.lowercase().contains("пополнение")) {
-                        type = "INCOME"
-                    } else if (categoryName.lowercase().contains("перевод")) {
-                        type = "TRANSFER" // Or could be expense
-                    }
+            val (amountRaw, categoryName, merchantRaw) = if (match != null) {
+                Triple(match.groups[1]?.value?.trim() ?: "", match.groups[2]?.value?.trim() ?: "", match.groups[3]?.value?.trim())
+            } else {
+                // Fallback: split by comma followed by whitespace
+                val parts = title.split(Regex(""",\s+""")).map { it.trim() }
+                Triple(parts.getOrElse(0) { "" }, parts.getOrElse(1) { "" }, parts.getOrNull(2))
+            }
 
-                    return ParsedNotificationResult(
-                        bankName = bankName,
-                        type = type,
-                        amount = amount,
-                        currency = currency,
-                        merchant = merchant,
-                        cardLast4 = categoryName, // Hack to pass category name via cardLast4 since we don't have a note field in ParsedNotificationResult
-                        matchedCategoryKeyword = categoryName 
-                    )
+            val amountStr = amountRaw.replace("[^0-9.,]".toRegex(), "").replace(" ", "").replace("\u00A0", "").replace(",", ".")
+            val amount = amountStr.toDoubleOrNull() ?: 0.0
+
+            if (amount > 0) {
+                val merchant = if (!merchantRaw.isNullOrBlank()) {
+                    merchantRaw
+                } else if (categoryName.isNotBlank()) {
+                    categoryName
+                } else {
+                    "Операция Дзен-мани"
                 }
+
+                // Determine currency
+                val currencyStr = amountRaw.lowercase()
+                val currency = when {
+                    currencyStr.contains("$") || currencyStr.contains("usd") -> "USD"
+                    currencyStr.contains("€") || currencyStr.contains("eur") -> "EUR"
+                    currencyStr.contains("₸") || currencyStr.contains("kzt") -> "KZT"
+                    currencyStr.contains("byn") -> "BYN"
+                    currencyStr.contains("cny") -> "CNY"
+                    else -> "RUB"
+                }
+
+                // Try to extract bank / account name from text
+                // Examples:
+                // "...\nВТБ, Доступно: 14 359,83 ₽"
+                // "...\nИюль, Доступно: 15 379,69 ₽"
+                var bankName = "Дзен-мани"
+                val bankRegex = Regex("""(?:^|\n)([^\n,]+?)\s*,\s*(?:доступно|баланс|остаток):""", RegexOption.IGNORE_CASE)
+                val bankMatch = bankRegex.find(text)
+                if (bankMatch != null) {
+                    val candidate = bankMatch.groups[1]?.value?.trim()?.trimEnd('.', ',')
+                    if (!candidate.isNullOrBlank() && candidate.length <= 25) {
+                        bankName = candidate
+                    }
+                }
+
+                // Transaction type
+                val catLower = categoryName.lowercase()
+                var type = "EXPENSE"
+                if (catLower.contains("доход") || catLower.contains("зарплат") || catLower.contains("пополнен") ||
+                    catLower.contains("аванс") || catLower.contains("возврат") || catLower.contains("кэшбэк") ||
+                    catLower.contains("начислен")) {
+                    type = "INCOME"
+                } else if (catLower.contains("перевод") || text.lowercase().contains("перевод")) {
+                    type = "TRANSFER"
+                }
+
+                return ParsedNotificationResult(
+                    bankName = bankName,
+                    type = type,
+                    amount = amount,
+                    currency = currency,
+                    merchant = merchant,
+                    cardLast4 = null,
+                    matchedCategoryKeyword = categoryName.ifBlank { null }
+                )
             }
         }
 
@@ -242,9 +259,13 @@ object BankNotificationParser {
     }
 
     fun matchCategoryId(categories: List<CategoryEntity>, keyword: String?): Long? {
-        if (keyword == null) return null
+        if (keyword.isNullOrBlank()) return null
+        val kw = keyword.trim().lowercase()
         return categories.find { cat ->
-            cat.name.lowercase().contains(keyword) || keyword.contains(cat.name.lowercase().take(5))
+            val catName = cat.name.trim().lowercase()
+            catName == kw || catName.contains(kw) || kw.contains(catName) ||
+                    (catName.length >= 4 && kw.startsWith(catName.take(4))) ||
+                    (kw.length >= 4 && catName.startsWith(kw.take(4)))
         }?.id
     }
 }

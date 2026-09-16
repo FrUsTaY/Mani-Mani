@@ -106,14 +106,14 @@ class BankNotificationListener : NotificationListenerService() {
 
         if (text.isNullOrBlank()) return
 
-        // Check if package belongs to known banks or notification text mentions financial transaction keywords
+        // Check if package belongs to known banks, Zen-money, or notification text mentions financial transaction keywords
         val isKnownBankPackage = BankNotificationParser.KNOWN_BANK_PACKAGES.containsKey(packageName)
         val fullText = "${title ?: ""} $text".lowercase()
         val hasFinancialKeywords = fullText.contains("покупка") || fullText.contains("списание") ||
                 fullText.contains("зачисление") || fullText.contains("перевод") ||
                 fullText.contains("оплата") || fullText.contains("баланс")
 
-        if (!isKnownBankPackage && !hasFinancialKeywords) {
+        if (!isKnownBankPackage && !isZenmoney && !hasFinancialKeywords) {
             return
         }
 
@@ -169,9 +169,9 @@ class BankNotificationListener : NotificationListenerService() {
                         val categories = db.categoryDao().getAllCategoriesSync()
                         val suggestedCatId = BankNotificationParser.matchCategoryId(categories, parsed.matchedCategoryKeyword)
 
-                        val isZenmoneyPush = packageName == "ru.zenmoney.androidsub" || packageName == "ru.zenmoney.android"
-                        val zenmoneyCategory = if (isZenmoneyPush) parsed.cardLast4 else null
-                        val actualCardLast4 = if (isZenmoneyPush) null else parsed.cardLast4
+                        val isZenmoneyPush = isZenmoney
+                        val zenmoneyCategory = if (isZenmoneyPush) parsed.matchedCategoryKeyword else null
+                        val actualCardLast4 = parsed.cardLast4
                         
                         val entity = PendingNotificationEntity(
                             packageName = packageName,
@@ -194,7 +194,11 @@ class BankNotificationListener : NotificationListenerService() {
                             bankName = parsed.bankName,
                             amount = parsed.amount,
                             currency = parsed.currency,
-                            merchant = if (isZenmoneyPush && zenmoneyCategory != null) "${parsed.merchant} (Заметка: $zenmoneyCategory)" else parsed.merchant,
+                            merchant = if (isZenmoneyPush && zenmoneyCategory != null && zenmoneyCategory != parsed.merchant) {
+                                "${parsed.merchant} ($zenmoneyCategory)"
+                            } else {
+                                parsed.merchant
+                            },
                             type = parsed.type,
                             notificationId = (insertedId % 100000).toInt() + 1000
                         )
