@@ -73,7 +73,7 @@ fun TransactionItemCard(
             val iconVec = if (goal != null) IconHelper.getIconByName(goal.iconName) else Icons.AutoMirrored.Filled.CompareArrows
             val color = if (goal != null) IconHelper.parseColor(goal.colorHex) else TransferBlue
             val fromName = account?.name ?: "Счёт"
-            val toName = if (goal != null) "Копилка: ${goal.name}" else toAccount?.name ?: "Счёт"
+            val toName = if (goal != null) "🎯 ${goal.name}" else toAccount?.name ?: "Счёт"
             val dispTitle = if (goal != null) "В копилку" else "Перевод"
             Quad(iconVec, color, dispTitle, "$fromName → $toName")
         }
@@ -140,13 +140,29 @@ fun TransactionItemCard(
                 )
                 val isExcludeFromStats = transaction.excludeFromStats
                 val isExcludedFromAnalytics = account?.includeInAnalytics == false
-                if (isExcludeFromStats || isExcludedFromAnalytics) {
+                if (goal != null || isExcludeFromStats || isExcludedFromAnalytics) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isExcludeFromStats) {
+                        if (goal != null) {
+                            val goalColor = IconHelper.parseColor(goal.colorHex)
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = goalColor.copy(alpha = 0.18f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, goalColor.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "🎯 В копилку: ${goal.name}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        } else if (isExcludeFromStats) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
@@ -190,9 +206,10 @@ fun TransactionItemCard(
                     else -> CurrencyHelper.formatAmount(transaction.amount, currency)
                 }
 
-                val amountColor = when (transaction.type) {
-                    "EXPENSE" -> ExpenseRed
-                    "INCOME" -> IncomeGreen
+                val amountColor = when {
+                    goal != null -> IconHelper.parseColor(goal.colorHex)
+                    transaction.type == "EXPENSE" -> ExpenseRed
+                    transaction.type == "INCOME" -> IncomeGreen
                     else -> TransferBlue
                 }
 

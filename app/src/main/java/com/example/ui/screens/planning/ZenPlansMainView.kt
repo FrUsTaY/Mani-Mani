@@ -847,16 +847,14 @@ fun ZenPlansMainView(
         AddPlannedPaymentDialog(
             existingItem = itemToEdit,
             onDismiss = { showAddPlannedPaymentDialog = false; itemToEdit = null },
-            onConfirm = { title, amount, isIncome, day, reminderType ->
-                val cal = Calendar.getInstance()
-                cal.set(Calendar.DAY_OF_MONTH, day)
-                val newTimestamp = cal.timeInMillis
+            onConfirm = { title, amount, isIncome, plannedTimestamp, isReminderEnabled ->
+                val reminderType = if (isReminderEnabled) "EXACT" else "NONE"
                 if (itemToEdit != null) {
                     onUpdatePlannedTransaction(itemToEdit!!.copy(
                         note = title,
                         amount = amount,
                         type = if (isIncome) "INCOME" else "EXPENSE",
-                        plannedDate = newTimestamp,
+                        plannedDate = plannedTimestamp,
                         reminderType = reminderType
                     ))
                 } else {
@@ -865,7 +863,7 @@ fun ZenPlansMainView(
                             type = if (isIncome) "INCOME" else "EXPENSE",
                             amount = amount,
                             accountId = state.accounts.firstOrNull()?.id ?: 1L,
-                            plannedDate = newTimestamp,
+                            plannedDate = plannedTimestamp,
                             note = title,
                             reminderType = reminderType
                         )
@@ -1668,8 +1666,9 @@ fun ZenPlannedPaymentsDialog(
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.Bold
                                 )
+                                val dateTimeFormatted = SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(cal.time)
                                 Text(
-                                    text = "${if (isIncome) "Доход" else "Расход"} • ${SimpleDateFormat("d MMM", Locale("ru")).format(cal.time)}",
+                                    text = "${if (isIncome) "Доход" else "Расход"} • $dateTimeFormatted${if (item.reminderType != "NONE") " • 🔔" else ""}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1708,34 +1707,73 @@ fun ZenPlannedPaymentsDialog(
 }
 
 /**
- * Dialog to add a planned payment or income
+ * Dialog to add or edit a planned payment or income with Calendar Date & Time picker
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun AddPlannedPaymentDialog(
     existingItem: com.example.data.entity.PlannedTransactionEntity? = null,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, amount: Double, isIncome: Boolean, day: Int, reminderType: String) -> Unit
+    onConfirm: (title: String, amount: Double, isIncome: Boolean, plannedTimestamp: Long, isReminderEnabled: Boolean) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var title by remember { mutableStateOf(existingItem?.note ?: "") }
-    var amountText by remember { mutableStateOf(existingItem?.amount?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
+    var amountText by remember { mutableStateOf(existingItem?.amount?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
     var isIncome by remember { mutableStateOf(existingItem?.type == "INCOME") }
-    var dayText by remember { 
-        mutableStateOf(
-            existingItem?.plannedDate?.let { 
-                Calendar.getInstance().apply { timeInMillis = it }.get(Calendar.DAY_OF_MONTH).toString() 
-            } ?: "15"
-        )
+
+    val initialCalendar = remember(existingItem) {
+        Calendar.getInstance().apply {
+            if (existingItem != null) {
+                timeInMillis = existingItem.plannedDate
+            } else {
+                add(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 10)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+        }
     }
-    var reminderType by remember { mutableStateOf(existingItem?.reminderType ?: "NONE") }
-    var showReminderDropdown by remember { mutableStateOf(false) }
-    
-    val reminderLabels = mapOf(
-        "NONE" to "Не напоминать",
-        "ON_DAY" to "В день платежа (утром)",
-        "1_DAY_BEFORE" to "За 1 день",
-        "3_DAYS_BEFORE" to "За 3 дня"
-    )
+
+    var selectedTimestamp by remember { mutableStateOf(initialCalendar.timeInMillis) }
+    var isReminderEnabled by remember { mutableStateOf(existingItem?.reminderType != "NONE") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val dateFormatter = remember { SimpleDateFormat("d MMMM yyyy", Locale("ru")) }
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale("ru")) }
+
+    val showDatePicker = {
+        val cal = Calendar.getInstance().apply { timeInMillis = selectedTimestamp }
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                cal.set(Calendar.YEAR, year)
+                cal.set(Calendar.MONTH, month)
+                cal.set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                selectedTimestamp = cal.timeInMillis
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    val showTimePicker = {
+        val cal = Calendar.getInstance().apply { timeInMillis = selectedTimestamp }
+        android.app.TimePickerDialog(
+            context,
+            { _, hourOfDay, minute ->
+                cal.set(Calendar.HOUR_OF_DAY, hourOfDay)
+                cal.set(Calendar.MINUTE, minute)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                selectedTimestamp = cal.timeInMillis
+            },
+            cal.get(Calendar.HOUR_OF_DAY),
+            cal.get(Calendar.MINUTE),
+            true
+        ).show()
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -1744,11 +1782,20 @@ fun AddPlannedPaymentDialog(
             modifier = Modifier.fillMaxWidth().testTag("add_planned_payment_dialog")
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = "Запланировать операцию",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (existingItem == null) "Запланировать операцию" else "Редактировать план",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -1758,6 +1805,10 @@ fun AddPlannedPaymentDialog(
                         selected = !isIncome,
                         onClick = { isIncome = false },
                         label = { Text("Расход") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ExpenseRed,
+                            selectedLabelColor = Color.White
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1765,6 +1816,10 @@ fun AddPlannedPaymentDialog(
                         selected = isIncome,
                         onClick = { isIncome = true },
                         label = { Text("Доход") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = IncomeGreen,
+                            selectedLabelColor = Color.White
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1773,7 +1828,7 @@ fun AddPlannedPaymentDialog(
 
                 OutlinedTextField(
                     value = title,
-                    onValueChange = { title = it },
+                    onValueChange = { title = it; errorMessage = null },
                     label = { Text("Название (например: Аренда, Зарплата)") },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -1783,76 +1838,174 @@ fun AddPlannedPaymentDialog(
 
                 OutlinedTextField(
                     value = amountText,
-                    onValueChange = { amountText = it.filter { c -> c.isDigit() || c == '.' } },
+                    onValueChange = { input ->
+                        if (input.isEmpty() || input.matches(Regex("""^\d*([.,]\d{0,2})?$"""))) {
+                            amountText = input.replace(',', '.')
+                            errorMessage = null
+                        }
+                    },
                     label = { Text("Сумма") },
                     shape = RoundedCornerShape(12.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                OutlinedTextField(
-                    value = dayText,
-                    onValueChange = { dayText = it.filter { c -> c.isDigit() }.take(2) },
-                    label = { Text("День месяца (1..31)") },
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
+                // Date & Time pickers
+                Text(
+                    text = "Дата и время операции:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                ExposedDropdownMenuBox(
-                    expanded = showReminderDropdown,
-                    onExpandedChange = { showReminderDropdown = !showReminderDropdown },
-                    modifier = Modifier.fillMaxWidth()
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedTextField(
-                        value = reminderLabels[reminderType] ?: "Не напоминать",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Напоминание") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showReminderDropdown) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = showReminderDropdown,
-                        onDismissRequest = { showReminderDropdown = false }
+                    // Date card
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .weight(1.4f)
+                            .clickable { showDatePicker() }
                     ) {
-                        reminderLabels.forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    reminderType = key
-                                    showReminderDropdown = false
-                                }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = "Выбрать дату",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = dateFormatter.format(Date(selectedTimestamp)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Time card
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .clickable { showTimePicker() }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = "Выбрать время",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = timeFormatter.format(Date(selectedTimestamp)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Reminder switch
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth().clickable { isReminderEnabled = !isReminderEnabled }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (isReminderEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = if (isReminderEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Напомнить о платеже",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Прислать пуш-уведомление в это время",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isReminderEnabled,
+                            onCheckedChange = { isReminderEnabled = it }
+                        )
+                    }
+                }
+
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    TextButton(onClick = onDismiss) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text("Отмена")
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
                             val amount = amountText.toDoubleOrNull() ?: 0.0
-                            val day = dayText.toIntOrNull() ?: 15
-                            if (title.isBlank() || amount <= 0 || day !in 1..31) return@Button
-                            onConfirm(title.trim(), amount, isIncome, day, reminderType)
-                        }
+                            if (title.isBlank()) {
+                                errorMessage = "Введите название операции"
+                                return@Button
+                            }
+                            if (amount <= 0) {
+                                errorMessage = "Введите сумму больше нуля"
+                                return@Button
+                            }
+                            onConfirm(title.trim(), amount, isIncome, selectedTimestamp, isReminderEnabled)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isIncome) IncomeGreen else ExpenseRed
+                        ),
+                        modifier = Modifier.weight(1.3f)
                     ) {
-                        Text("Сохранить")
+                        Text(if (existingItem != null) "Сохранить" else "Запланировать", fontWeight = FontWeight.Bold)
                     }
                 }
             }

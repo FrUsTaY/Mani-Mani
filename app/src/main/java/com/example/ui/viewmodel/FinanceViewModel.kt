@@ -1016,19 +1016,28 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     // Planned Transactions
     fun addPlannedTransaction(transaction: PlannedTransactionEntity) {
         viewModelScope.launch {
-            repository.insertPlannedTransaction(transaction)
+            val id = repository.insertPlannedTransaction(transaction)
+            if (transaction.reminderType != "NONE") {
+                com.example.service.PlannedPaymentScheduler.scheduleReminder(getApplication(), transaction.copy(id = id))
+            }
         }
     }
 
     fun updatePlannedTransaction(transaction: PlannedTransactionEntity) {
         viewModelScope.launch {
             repository.updatePlannedTransaction(transaction)
+            if (transaction.reminderType != "NONE") {
+                com.example.service.PlannedPaymentScheduler.scheduleReminder(getApplication(), transaction)
+            } else {
+                com.example.service.PlannedPaymentScheduler.cancelReminder(getApplication(), transaction.id)
+            }
         }
     }
 
     fun deletePlannedTransaction(transaction: PlannedTransactionEntity) {
         viewModelScope.launch {
             repository.deletePlannedTransaction(transaction)
+            com.example.service.PlannedPaymentScheduler.cancelReminder(getApplication(), transaction.id)
         }
     }
 
