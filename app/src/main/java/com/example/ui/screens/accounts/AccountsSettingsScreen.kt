@@ -201,32 +201,42 @@ fun AccountsSettingsScreen(
             // 2. Base Currency Preference
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Основная валюта приложения",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "В этой валюте рассчитывается общий баланс и статистика расходов",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    val currencies = listOf("RUB", "USD", "EUR", "KZT", "BYN", "CNY")
-                    currencies.forEach { curr ->
-                        val isSelected = state.baseCurrency == curr
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onCurrencyChange(curr) },
-                            label = { Text("$curr ${CurrencyHelper.currencySymbols[curr] ?: ""}") },
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Основная валюта",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Все операции и балансы ведутся в рублях",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Surface(
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
-                        )
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "RUB (₽)",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
                     }
                 }
             }

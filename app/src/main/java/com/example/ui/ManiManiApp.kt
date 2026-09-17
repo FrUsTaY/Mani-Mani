@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -150,6 +151,7 @@ fun ManiManiApp(
                     onStartClick = { viewModel.completeFirstLaunch() }
                 )
             } else if (showGeminiAssistantScreen) {
+                BackHandler { showGeminiAssistantScreen = false }
                 GeminiAssistantScreen(
                     state = state,
                     onBack = { showGeminiAssistantScreen = false },
@@ -160,6 +162,7 @@ fun ManiManiApp(
                     onTestApiKey = { key, callback -> viewModel.testGeminiApiKey(key, callback) }
                 )
             } else if (showNotificationSettingsScreen) {
+                BackHandler { showNotificationSettingsScreen = false }
                 val isEveningSummaryEnabled by viewModel.isEveningSummaryEnabledFlow.collectAsStateWithLifecycle()
                 val eveningSummaryTime by viewModel.eveningSummaryTimeFlow.collectAsStateWithLifecycle()
                 com.example.ui.screens.NotificationSettingsScreen(
@@ -180,6 +183,13 @@ fun ManiManiApp(
                     onToggleZenmoneyIntercept = { viewModel.setZenmoneyPushInterceptEnabled(it) }
                 )
             } else if (showBankSyncScreen) {
+                BackHandler {
+                    showBankSyncScreen = false
+                    if (returnToNotificationSettingsFromBankSync) {
+                        showNotificationSettingsScreen = true
+                        returnToNotificationSettingsFromBankSync = false
+                    }
+                }
                 BankSyncScreen(
                     state = state,
                     onBack = { 
@@ -202,6 +212,11 @@ fun ManiManiApp(
                     onSendTestPush = { viewModel.sendTestPushNotification() }
                 )
             } else {
+                if (currentTab != ManiManiNavTab.HOME) {
+                    BackHandler {
+                        currentTab = ManiManiNavTab.HOME
+                    }
+                }
                 when (currentTab) {
                     ManiManiNavTab.HOME -> HomeScreen(
                         state = state,

@@ -77,7 +77,6 @@ fun AddEditAccountDialog(
         "trending_up" to "Инвестиции"
     )
 
-    val currencyOptions = listOf("RUB", "USD", "EUR", "KZT", "BYN", "CNY")
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -171,27 +170,6 @@ fun AddEditAccountDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Currency
-                Text(
-                    text = "Валюта счёта",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(currencyOptions) { curr ->
-                        val isSelected = selectedCurrency == curr
-                        val symbol = CurrencyHelper.currencySymbols[curr] ?: curr
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { selectedCurrency = curr },
-                            label = { Text("$curr ($symbol)") },
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

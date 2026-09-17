@@ -169,7 +169,40 @@ class FinanceRepository(private val db: AppDatabase) {
             }
         }
 
-        // 3. Update database record
+        // 3. Reverse previous goal / debt effect
+        oldTransaction.goalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                val sign = if (oldTransaction.type == "INCOME") -1 else 1
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (oldTransaction.amount * sign)))
+            }
+        }
+        oldTransaction.debtId?.let { debtId ->
+            val debt = debtDao.getDebtById(debtId)
+            if (debt != null) {
+                val newAmount = debt.amount + oldTransaction.amount
+                debtDao.updateDebt(debt.copy(amount = newAmount, isSettled = false))
+            }
+        }
+
+        // 4. Apply new goal / debt effect
+        newTransaction.goalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                val sign = if (newTransaction.type == "INCOME") -1 else 1
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (newTransaction.amount * sign)))
+            }
+        }
+        newTransaction.debtId?.let { debtId ->
+            val debt = debtDao.getDebtById(debtId)
+            if (debt != null) {
+                val newAmount = (debt.amount - newTransaction.amount).coerceAtLeast(0.0)
+                val isSettled = newAmount <= 0.0
+                debtDao.updateDebt(debt.copy(amount = newAmount, isSettled = isSettled))
+            }
+        }
+
+        // 5. Update database record
         transactionDao.updateTransaction(newTransaction)
     }
 

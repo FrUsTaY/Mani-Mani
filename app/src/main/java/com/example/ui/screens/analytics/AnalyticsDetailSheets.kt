@@ -388,7 +388,11 @@ fun CategoryExpensesDetailSheet(
                         val percentInt = (item.percentage * 100).toInt()
 
                         val categoryTxs = remember(expenseTransactions, cat.id) {
-                            expenseTransactions.filter { it.categoryId == cat.id }
+                            if (cat.id == -1L) {
+                                expenseTransactions.filter { it.categoryId == null || it.categoryId == -1L || it.type == "TRANSFER" }
+                            } else {
+                                expenseTransactions.filter { it.categoryId == cat.id }
+                            }
                         }
 
                         Surface(

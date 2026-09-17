@@ -900,14 +900,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                                 type = "EXPENSE",
                                 amount = alloc.amount,
                                 accountId = sourceAccountId,
+                                goalId = alloc.targetId,
                                 timestamp = now + (count * 200),
                                 note = "$notePrefix (Копилка/Цель)",
                                 tag = "распределение,шлюз,цель",
                                 excludeFromStats = false
                             )
                         )
-                        // Also update goal
-                        repository.contributeToGoal(alloc.targetId, alloc.amount)
                         count++
                     }
                     com.example.ui.components.AllocationTargetType.DEBT -> {
@@ -916,17 +915,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                                 type = "EXPENSE",
                                 amount = alloc.amount,
                                 accountId = sourceAccountId,
+                                debtId = alloc.targetId,
                                 timestamp = now + (count * 200),
                                 note = "$notePrefix (Погашение долга/кредита)",
                                 tag = "распределение,шлюз,долг",
                                 excludeFromStats = false
                             )
                         )
-                        val debt = uiState.value.debts.find { it.id == alloc.targetId }
-                        if (debt != null) {
-                            val newAmount = (debt.amount - alloc.amount).coerceAtLeast(0.0)
-                            repository.updateDebt(debt.copy(amount = newAmount, isSettled = newAmount == 0.0))
-                        }
                         count++
                     }
                 }

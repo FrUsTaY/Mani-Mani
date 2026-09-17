@@ -182,14 +182,39 @@ fun ZenPlansMainView(
     // Sum of planned category budgets
     val totalCategoryBudgets = state.budgets.sumOf { it.limitAmount }
 
-    // Planned upcoming payments in this cycle
-    val remainingPlannedPayments = state.plannedTransactions
-        .filter { it.type == "EXPENSE" && (Calendar.getInstance().apply { timeInMillis = it.plannedDate }.get(Calendar.DAY_OF_MONTH) >= period.dayOfCycle || !isCurrentCycle) }
-        .sumOf { it.amount }
+    val startOfToday = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
 
-    val remainingPlannedIncome = state.plannedTransactions
-        .filter { it.type == "INCOME" && (Calendar.getInstance().apply { timeInMillis = it.plannedDate }.get(Calendar.DAY_OF_MONTH) >= period.dayOfCycle || !isCurrentCycle) }
-        .sumOf { it.amount }
+    // Planned upcoming payments in this cycle
+    val remainingPlannedPayments = remember(state.plannedTransactions, isCurrentCycle, startOfToday, period.startTime, period.endTime) {
+        state.plannedTransactions
+            .filter { 
+                it.type == "EXPENSE" && if (isCurrentCycle) {
+                    it.plannedDate >= startOfToday && it.plannedDate <= period.endTime
+                } else {
+                    it.plannedDate in period.startTime..period.endTime
+                }
+            }
+            .sumOf { it.amount }
+    }
+
+    val remainingPlannedIncome = remember(state.plannedTransactions, isCurrentCycle, startOfToday, period.startTime, period.endTime) {
+        state.plannedTransactions
+            .filter { 
+                it.type == "INCOME" && if (isCurrentCycle) {
+                    it.plannedDate >= startOfToday && it.plannedDate <= period.endTime
+                } else {
+                    it.plannedDate in period.startTime..period.endTime
+                }
+            }
+            .sumOf { it.amount }
+    }
 
     // "Ещё в планах" (Remaining planned expenses)
     val remainingCategoryBudgets = state.budgets.sumOf { budget ->
@@ -1644,7 +1669,7 @@ fun ZenPlannedPaymentsDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = if (isIncome) "Доход" else "Расход",
+                                    text = "${if (isIncome) "Доход" else "Расход"} • ${SimpleDateFormat("d MMM", Locale("ru")).format(cal.time)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

@@ -229,16 +229,41 @@ fun AnalyticsScreen(
         }
     }
 
-    // Planning metrics calculation
-    val totalBudgetLimits = state.budgets.sumOf { it.limitAmount }
-    val remainingPlanned = if (totalBudgetLimits > 0) {
-        (totalBudgetLimits - filteredExpense).coerceAtLeast(0.0)
-    } else {
-        0.0
+    // Planning metrics calculation (unified with ZenPlans calculation)
+    val startOfToday = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
-
-    val forecastCeiling = (filteredExpense + remainingPlanned * 1.28).coerceAtLeast(filteredExpense * 1.2)
-    val freeMoney = (state.totalBalance - remainingPlanned).coerceAtLeast(0.0)
+    val paydayEnd = remember(state.dayOfCycle, state.totalDaysInCycle) {
+        val oneDay = 86_400_000L
+        val cycleStart = now - (state.dayOfCycle - 1) * oneDay
+        cycleStart + (state.totalDaysInCycle * oneDay)
+    }
+    val remainingPlannedPayments = remember(state.plannedTransactions, startOfToday, paydayEnd) {
+        state.plannedTransactions
+            .filter { it.type == "EXPENSE" && it.plannedDate >= startOfToday && it.plannedDate <= paydayEnd }
+            .sumOf { it.amount }
+    }
+    val remainingPlannedIncome = remember(state.plannedTransactions, startOfToday, paydayEnd) {
+        state.plannedTransactions
+            .filter { it.type == "INCOME" && it.plannedDate >= startOfToday && it.plannedDate <= paydayEnd }
+            .sumOf { it.amount }
+    }
+    val remainingCategoryBudgets = remember(state.budgets, filteredSpendings, state.categorySpendings) {
+        val currentSpendings = if (filteredSpendings.isNotEmpty()) filteredSpendings else state.categorySpendings
+        val spendingByCatId = currentSpendings.associate { it.category.id to it.totalAmount }
+        state.budgets.sumOf { budget ->
+            val spentInCat = spendingByCatId[budget.categoryId] ?: 0.0
+            (budget.limitAmount - spentInCat).coerceAtLeast(0.0)
+        }
+    }
+    val remainingPlannedExpenses = remainingCategoryBudgets + remainingPlannedPayments
+    val forecastCeiling = (filteredExpense + remainingPlannedExpenses * 1.28).coerceAtLeast(filteredExpense * 1.2)
+    val freeMoney = (state.totalBalance + remainingPlannedIncome - remainingPlannedExpenses).coerceAtLeast(0.0)
     val savingsInGoals = state.goals.sumOf { it.currentAmount }
 
     LazyColumn(
@@ -437,8 +462,14 @@ fun AnalyticsScreen(
 
     // Detail Bottom Sheet: Анализ расходов по категориям
     if (showCategoryExpenseSheet) {
-        val expenseTransactions = remember(filteredTxs) {
-            filteredTxs.filter { it.type == "EXPENSE" }
+        val expenseTransactions = remember(filteredTxs, state.accounts) {
+            filteredTxs.filter { tx ->
+                val acc = state.accounts.find { it.id == tx.accountId }
+                val toAcc = state.accounts.find { it.id == tx.toAccountId }
+                val accInAnalytics = acc?.includeInAnalytics ?: true
+                val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+                (tx.type == "EXPENSE" && accInAnalytics) || (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics)
+            }
         }
         CategoryExpensesDetailSheet(
             spendings = if (filteredSpendings.isNotEmpty()) filteredSpendings else state.categorySpendings,
@@ -456,8 +487,14 @@ fun AnalyticsScreen(
 
     // Detail Bottom Sheet: Сравнение периодов
     if (showPeriodComparisonSheet) {
-        val expenseTransactions = remember(filteredTxs) {
-            filteredTxs.filter { it.type == "EXPENSE" }
+        val expenseTransactions = remember(filteredTxs, state.accounts) {
+            filteredTxs.filter { tx ->
+                val acc = state.accounts.find { it.id == tx.accountId }
+                val toAcc = state.accounts.find { it.id == tx.toAccountId }
+                val accInAnalytics = acc?.includeInAnalytics ?: true
+                val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+                (tx.type == "EXPENSE" && accInAnalytics) || (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics)
+            }
         }
         PeriodComparisonDetailSheet(
             currentExpense = filteredExpense,
@@ -491,7 +528,7 @@ fun AnalyticsScreen(
             daysUntilPayday = state.daysUntilPayday,
             currency = state.baseCurrency,
             totalBalance = state.totalBalance,
-            remainingPlannedExpenses = remainingPlanned,
+            remainingPlannedExpenses = remainingPlannedExpenses,
             onDismiss = { showFreeMoneySheet = false }
         )
     }
