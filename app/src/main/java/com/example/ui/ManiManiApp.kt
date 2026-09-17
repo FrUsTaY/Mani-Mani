@@ -199,8 +199,8 @@ fun ManiManiApp(
                             returnToNotificationSettingsFromBankSync = false
                         }
                     },
-                    onConfirmNotification = { notif, accId, catId ->
-                        viewModel.confirmPendingNotification(notif, accId, catId)
+                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, type ->
+                        viewModel.confirmPendingNotification(notif, accId, catId, toAccId, goalId, type)
                     },
                     onDismissNotification = { notif ->
                         viewModel.dismissPendingNotification(notif)
@@ -276,7 +276,7 @@ fun ManiManiApp(
                             viewModel.addGoal(name, target, curr, col, icon)
                         },
                         onEditGoal = { viewModel.updateGoal(it) },
-                        onContributeGoal = { goalId, amount -> viewModel.contributeToGoal(goalId, amount) },
+                        onContributeGoal = { goalId, amount, accId -> viewModel.contributeToGoal(goalId, amount, accId) },
                         onDeleteGoal = { viewModel.deleteGoal(it) },
                         onAddDebt = { person, amt, isOwed, note -> viewModel.addDebt(person, amt, isOwed, note) },
                         onEditDebt = { viewModel.updateDebt(it) },

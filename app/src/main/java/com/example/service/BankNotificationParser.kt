@@ -28,13 +28,15 @@ object BankNotificationParser {
         "com.bspb" to "Банк Санкт-Петербург",
         "kz.kaspi.mobile" to "Kaspi.kz",
         "ru.sovcomcard.halva.v1" to "Совкомбанк (Халва)",
-        "com.ftc.robank" to "Росбанк"
+        "com.ftc.robank" to "Росбанк",
+        "com.yandex.bank" to "Яндекс Банк"
     )
 
     fun identifyBank(packageName: String, title: String?, text: String?): String {
         KNOWN_BANK_PACKAGES[packageName]?.let { return it }
         val full = "${title ?: ""} ${text ?: ""}".lowercase()
         return when {
+            full.contains("яндекс") || full.contains("yandex") -> "Яндекс Банк"
             full.contains("тинькофф") || full.contains("т-банк") || full.contains("t-bank") || full.contains("tinkoff") -> "Т-Банк"
             full.contains("сбер") || full.contains("sber") -> "Сбербанк"
             full.contains("альфа") || full.contains("alfa") -> "Альфа-Банк"
@@ -148,7 +150,7 @@ object BankNotificationParser {
                     lower.contains("зарплат") || lower.contains("аванс") || lower.contains("возврат") ||
                     lower.contains("поступил") -> "INCOME"
 
-            lower.contains("перевод на") || lower.contains("перевод клиенту") || lower.contains("перевели") -> "TRANSFER"
+            lower.contains("перевод") || lower.contains("перевели") || lower.contains("сбп") -> "TRANSFER"
 
             lower.contains("покупка") || lower.contains("списание") || lower.contains("оплата") ||
                     lower.contains("чек") || lower.contains("снятие") || lower.contains("платёж") ||

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.entity.GoalEntity
 import com.example.data.entity.PendingNotificationEntity
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
@@ -39,7 +40,7 @@ import java.util.Locale
 fun BankSyncScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
-    onConfirmNotification: (PendingNotificationEntity, Long, Long?) -> Unit,
+    onConfirmNotification: (PendingNotificationEntity, Long, Long?, Long?, Long?, String) -> Unit,
     onDismissNotification: (PendingNotificationEntity) -> Unit,
     onParseManualText: (String) -> Unit,
     onTogglePushNotifications: (Boolean) -> Unit = {},
@@ -266,8 +267,9 @@ fun BankSyncScreen(
                         notification = notif,
                         accounts = state.accounts,
                         categories = state.categories,
-                        onConfirm = { accId, catId ->
-                            onConfirmNotification(notif, accId, catId)
+                        goals = state.goals,
+                        onConfirm = { accId, catId, toAccId, goalId, type ->
+                            onConfirmNotification(notif, accId, catId, toAccId, goalId, type)
                         },
                         onDismiss = {
                             onDismissNotification(notif)
@@ -352,17 +354,34 @@ fun PendingNotificationCard(
     notification: PendingNotificationEntity,
     accounts: List<com.example.data.entity.AccountEntity>,
     categories: List<com.example.data.entity.CategoryEntity>,
-    onConfirm: (accountId: Long, categoryId: Long?) -> Unit,
+    goals: List<GoalEntity> = emptyList(),
+    onConfirm: (accountId: Long, categoryId: Long?, toAccountId: Long?, goalId: Long?, type: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var selectedType by remember(notification) {
+        mutableStateOf(notification.type)
+    }
     var selectedAccountId by remember(notification) {
         mutableStateOf(notification.suggestedAccountId ?: accounts.firstOrNull()?.id ?: 1L)
     }
-    var selectedCategoryId by remember(notification) {
-        mutableStateOf(notification.suggestedCategoryId ?: categories.firstOrNull()?.id)
+    var selectedCategoryId by remember(notification, selectedType) {
+        val typeCats = categories.filter { it.type == selectedType }
+        mutableStateOf(
+            if (notification.suggestedCategoryId != null && typeCats.any { it.id == notification.suggestedCategoryId }) {
+                notification.suggestedCategoryId
+            } else {
+                typeCats.firstOrNull()?.id
+            }
+        )
+    }
+    var selectedToAccountId by remember(notification) {
+        val otherAccount = accounts.firstOrNull { it.id != (notification.suggestedAccountId ?: accounts.firstOrNull()?.id ?: 1L) }
+        mutableStateOf<Long?>(otherAccount?.id)
+    }
+    var selectedGoalId by remember(notification) {
+        mutableStateOf<Long?>(null)
     }
 
-    val isIncome = notification.type == "INCOME"
     val timeFormat = remember { SimpleDateFormat("HH:mm, dd MMM", Locale.getDefault()) }
 
     Card(
@@ -425,11 +444,22 @@ fun PendingNotificationCard(
                     }
                 }
 
+                val amountColor = when (selectedType) {
+                    "INCOME" -> IncomeGreen
+                    "TRANSFER" -> MaterialTheme.colorScheme.primary
+                    else -> ExpenseRed
+                }
+                val amountPrefix = when (selectedType) {
+                    "INCOME" -> "+"
+                    "TRANSFER" -> "⇄ "
+                    else -> "-"
+                }
+
                 Text(
-                    text = "${if (isIncome) "+" else "-"}${CurrencyHelper.format(notification.amount, notification.currency)}",
+                    text = "$amountPrefix${CurrencyHelper.format(notification.amount, notification.currency)}",
                     fontWeight = FontWeight.ExtraBold,
                     style = MaterialTheme.typography.titleLarge,
-                    color = if (isIncome) IncomeGreen else ExpenseRed
+                    color = amountColor
                 )
             }
 
@@ -447,80 +477,226 @@ fun PendingNotificationCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Account & Category selector chips
+            // Type selector chips (Расход / Перевод / Доход)
             Text(
-                text = "Куда записать:",
+                text = "Тип операции:",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(6.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Account selector
-                var showAccountMenu by remember { mutableStateOf(false) }
-                val currentAccount = accounts.find { it.id == selectedAccountId }
+                FilterChip(
+                    selected = selectedType == "EXPENSE",
+                    onClick = { selectedType = "EXPENSE" },
+                    label = { Text("Расход", fontSize = 12.sp) }
+                )
+                FilterChip(
+                    selected = selectedType == "TRANSFER",
+                    onClick = { selectedType = "TRANSFER" },
+                    label = { Text("Перевод", fontSize = 12.sp) }
+                )
+                FilterChip(
+                    selected = selectedType == "INCOME",
+                    onClick = { selectedType = "INCOME" },
+                    label = { Text("Доход", fontSize = 12.sp) }
+                )
+            }
 
-                Box(modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
-                        onClick = { showAccountMenu = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = currentAccount?.name ?: "Счёт",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 12.sp
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showAccountMenu,
-                        onDismissRequest = { showAccountMenu = false }
-                    ) {
-                        accounts.forEach { acc ->
-                            DropdownMenuItem(
-                                text = { Text("${acc.name} (${CurrencyHelper.format(acc.balance, acc.currency)})") },
-                                onClick = {
-                                    selectedAccountId = acc.id
-                                    showAccountMenu = false
-                                }
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Account & Category (or Destination) selector chips
+            if (selectedType == "TRANSFER") {
+                Text(
+                    text = "Куда записать перевод:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Source Account selector
+                    var showSourceMenu by remember { mutableStateOf(false) }
+                    val currentSourceAccount = accounts.find { it.id == selectedAccountId }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { showSourceMenu = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "От: ${currentSourceAccount?.name ?: "Счёт"}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp
                             )
+                        }
+                        DropdownMenu(
+                            expanded = showSourceMenu,
+                            onDismissRequest = { showSourceMenu = false }
+                        ) {
+                            accounts.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${CurrencyHelper.format(acc.balance, acc.currency)})") },
+                                    onClick = {
+                                        selectedAccountId = acc.id
+                                        if (selectedToAccountId == acc.id) {
+                                            selectedToAccountId = accounts.firstOrNull { it.id != acc.id }?.id
+                                        }
+                                        showSourceMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Target Account / Goal selector
+                    var showTargetMenu by remember { mutableStateOf(false) }
+                    val currentTargetText = when {
+                        selectedGoalId != null -> goals.find { it.id == selectedGoalId }?.let { "🎯 ${it.name}" } ?: "Копилка"
+                        selectedToAccountId != null -> accounts.find { it.id == selectedToAccountId }?.let { "До: ${it.name}" } ?: "Куда"
+                        else -> "Куда"
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { showTargetMenu = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = currentTargetText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showTargetMenu,
+                            onDismissRequest = { showTargetMenu = false }
+                        ) {
+                            val targetAccounts = accounts.filter { it.id != selectedAccountId }
+                            if (targetAccounts.isNotEmpty()) {
+                                Text(
+                                    text = "  Счета:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                )
+                                targetAccounts.forEach { acc ->
+                                    DropdownMenuItem(
+                                        text = { Text("${acc.name} (${CurrencyHelper.format(acc.balance, acc.currency)})") },
+                                        onClick = {
+                                            selectedToAccountId = acc.id
+                                            selectedGoalId = null
+                                            showTargetMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                            if (goals.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text(
+                                    text = "  Копилки / Цели:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                )
+                                goals.forEach { goal ->
+                                    DropdownMenuItem(
+                                        text = { Text("🎯 ${goal.name}") },
+                                        onClick = {
+                                            selectedGoalId = goal.id
+                                            selectedToAccountId = null
+                                            showTargetMenu = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            } else {
+                Text(
+                    text = "Куда записать:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Category selector
-                var showCategoryMenu by remember { mutableStateOf(false) }
-                val currentCategory = categories.find { it.id == selectedCategoryId }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Account selector
+                    var showAccountMenu by remember { mutableStateOf(false) }
+                    val currentAccount = accounts.find { it.id == selectedAccountId }
 
-                Box(modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
-                        onClick = { showCategoryMenu = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = currentCategory?.name ?: "Категория",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 12.sp
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showCategoryMenu,
-                        onDismissRequest = { showCategoryMenu = false }
-                    ) {
-                        categories.filter { it.type == notification.type }.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { Text(cat.name) },
-                                onClick = {
-                                    selectedCategoryId = cat.id
-                                    showCategoryMenu = false
-                                }
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { showAccountMenu = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = currentAccount?.name ?: "Счёт",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp
                             )
+                        }
+                        DropdownMenu(
+                            expanded = showAccountMenu,
+                            onDismissRequest = { showAccountMenu = false }
+                        ) {
+                            accounts.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("${acc.name} (${CurrencyHelper.format(acc.balance, acc.currency)})") },
+                                    onClick = {
+                                        selectedAccountId = acc.id
+                                        showAccountMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Category selector
+                    var showCategoryMenu by remember { mutableStateOf(false) }
+                    val currentCategory = categories.find { it.id == selectedCategoryId }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { showCategoryMenu = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = currentCategory?.name ?: "Категория",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showCategoryMenu,
+                            onDismissRequest = { showCategoryMenu = false }
+                        ) {
+                            categories.filter { it.type == selectedType }.forEach { cat ->
+                                DropdownMenuItem(
+                                    text = { Text(cat.name) },
+                                    onClick = {
+                                        selectedCategoryId = cat.id
+                                        showCategoryMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -542,7 +718,13 @@ fun PendingNotificationCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        onConfirm(selectedAccountId, selectedCategoryId)
+                        onConfirm(
+                            selectedAccountId,
+                            if (selectedType != "TRANSFER") selectedCategoryId else null,
+                            if (selectedType == "TRANSFER") selectedToAccountId else null,
+                            if (selectedType == "TRANSFER") selectedGoalId else null,
+                            selectedType
+                        )
                     },
                     modifier = Modifier.testTag("confirm_notification_${notification.id}")
                 ) {

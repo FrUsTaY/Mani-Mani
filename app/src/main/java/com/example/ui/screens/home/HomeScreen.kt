@@ -436,10 +436,19 @@ fun HomeScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    val amountText = when (firstNotif.type) {
+                                        "INCOME" -> "+${CurrencyHelper.format(firstNotif.amount, firstNotif.currency)}"
+                                        "TRANSFER" -> "⇄ ${CurrencyHelper.format(firstNotif.amount, firstNotif.currency)}"
+                                        else -> "-${CurrencyHelper.format(firstNotif.amount, firstNotif.currency)}"
+                                    }
+                                    val amountColor = when (firstNotif.type) {
+                                        "INCOME" -> IncomeGreen
+                                        "TRANSFER" -> MaterialTheme.colorScheme.primary
+                                        else -> ExpenseRed
+                                    }
                                     Text(
-                                        text = if (firstNotif.type == "INCOME") "+${CurrencyHelper.format(firstNotif.amount, firstNotif.currency)}"
-                                        else "-${CurrencyHelper.format(firstNotif.amount, firstNotif.currency)}",
-                                        color = if (firstNotif.type == "INCOME") IncomeGreen else ExpenseRed,
+                                        text = amountText,
+                                        color = amountColor,
                                         fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -455,13 +464,17 @@ fun HomeScreen(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     FilledTonalButton(
                                         onClick = {
-                                            val defaultAccId = firstNotif.suggestedAccountId ?: state.accounts.firstOrNull()?.id ?: 1L
-                                            onConfirmNotification(firstNotif, defaultAccId, firstNotif.suggestedCategoryId)
+                                            if (firstNotif.type == "TRANSFER") {
+                                                onOpenBankSync()
+                                            } else {
+                                                val defaultAccId = firstNotif.suggestedAccountId ?: state.accounts.firstOrNull()?.id ?: 1L
+                                                onConfirmNotification(firstNotif, defaultAccId, firstNotif.suggestedCategoryId)
+                                            }
                                         },
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier.height(32.dp).testTag("quick_confirm_notification_button")
                                     ) {
-                                        Text("Добавить", fontSize = 12.sp)
+                                        Text(if (firstNotif.type == "TRANSFER") "Настроить" else "Добавить", fontSize = 12.sp)
                                     }
                                 }
                             }

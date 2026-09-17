@@ -213,6 +213,7 @@ class FinanceRepository(private val db: AppDatabase) {
 
     // Goals
     val allGoals: Flow<List<GoalEntity>> = goalDao.getAllGoals()
+    suspend fun getGoalById(id: Long): GoalEntity? = goalDao.getGoalById(id)
     suspend fun insertGoal(goal: GoalEntity) = goalDao.insertGoal(goal)
     suspend fun updateGoal(goal: GoalEntity) = goalDao.updateGoal(goal)
     suspend fun deleteGoal(goal: GoalEntity) = goalDao.deleteGoal(goal)

@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.entity.AccountEntity
 import com.example.data.entity.BudgetEntity
 import com.example.data.entity.DebtEntity
 import com.example.data.entity.GoalEntity
@@ -40,7 +41,7 @@ fun PlanningScreen(
     onDeleteBudget: (BudgetEntity) -> Unit,
     onAddGoal: (name: String, target: Double, current: Double, colorHex: String, iconName: String) -> Unit,
     onEditGoal: (GoalEntity) -> Unit = {},
-    onContributeGoal: (goalId: Long, amount: Double) -> Unit,
+    onContributeGoal: (goalId: Long, amount: Double, accountId: Long) -> Unit,
     onDeleteGoal: (GoalEntity) -> Unit,
     onAddDebt: (person: String, amount: Double, isOwedToMe: Boolean, note: String) -> Unit,
     onEditDebt: (DebtEntity) -> Unit = {},
@@ -73,6 +74,7 @@ fun PlanningScreen(
                 onAddPlannedTransaction = onAddPlannedTransaction,
                 onUpdatePlannedTransaction = onUpdatePlannedTransaction,
                 onDeletePlannedTransaction = onDeletePlannedTransaction,
+                onAddTransaction = onAddTransaction,
                 selectedSubTab = selectedTab,
                 onSubTabSelected = { selectedTab = it },
                 subTabs = tabs,
@@ -528,10 +530,11 @@ fun PlanningScreen(
     showContributeGoalDialog?.let { goal ->
         ContributeGoalDialog(
             goal = goal,
+            accounts = state.accounts.filter { !it.isArchived },
             currency = state.baseCurrency,
             onDismiss = { showContributeGoalDialog = null },
-            onConfirm = { amount ->
-                onContributeGoal(goal.id, amount)
+            onConfirm = { accountId, amount ->
+                onContributeGoal(goal.id, amount, accountId)
                 showContributeGoalDialog = null
             }
         )
@@ -894,15 +897,20 @@ fun AddGoalDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContributeGoalDialog(
     goal: GoalEntity,
+    accounts: List<AccountEntity>,
     currency: String,
     onDismiss: () -> Unit,
-    onConfirm: (amount: Double) -> Unit
+    onConfirm: (accountId: Long, amount: Double) -> Unit
 ) {
+    var selectedAccountId by remember { mutableStateOf(accounts.firstOrNull()?.id ?: 0L) }
+    var showAccountMenu by remember { mutableStateOf(false) }
     var amountText by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val currentAccount = accounts.find { it.id == selectedAccountId }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -912,6 +920,40 @@ fun ContributeGoalDialog(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Пополнить цель «${goal.name}»", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text("Счёт списания:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(6.dp))
+                ExposedDropdownMenuBox(
+                    expanded = showAccountMenu,
+                    onExpandedChange = { showAccountMenu = !showAccountMenu },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = currentAccount?.let { "${it.name} (${CurrencyHelper.format(it.balance, it.currency)})" } ?: "Выберите счёт",
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showAccountMenu) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = showAccountMenu,
+                        onDismissRequest = { showAccountMenu = false }
+                    ) {
+                        accounts.forEach { acc ->
+                            DropdownMenuItem(
+                                text = { Text("${acc.name} (${CurrencyHelper.format(acc.balance, acc.currency)})") },
+                                onClick = {
+                                    selectedAccountId = acc.id
+                                    showAccountMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedTextField(
@@ -934,12 +976,16 @@ fun ContributeGoalDialog(
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
                     Button(
                         onClick = {
+                            if (selectedAccountId == 0L) {
+                                errorMessage = "Выберите счёт списания"
+                                return@Button
+                            }
                             val amount = amountText.toDoubleOrNull()
                             if (amount == null || amount <= 0) {
                                 errorMessage = "Введите сумму больше нуля"
                                 return@Button
                             }
-                            onConfirm(amount)
+                            onConfirm(selectedAccountId, amount)
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("Внести") }

@@ -33,7 +33,7 @@ interface AccountDao {
     @Delete
     suspend fun deleteAccount(account: AccountEntity)
 
-    @Query("UPDATE accounts SET balance = balance + :delta WHERE id = :accountId")
+    @Query("UPDATE accounts SET balance = ROUND(balance + :delta, 2) WHERE id = :accountId")
     suspend fun updateBalance(accountId: Long, delta: Double)
 
     @Query("UPDATE accounts SET balance = 0.0")

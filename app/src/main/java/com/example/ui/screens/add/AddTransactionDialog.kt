@@ -104,6 +104,12 @@ fun AddTransactionDialog(
         categories.filter { it.type == selectedType }
     }
 
+    val relevantDebts = remember(selectedType, debts) {
+        debts.filter { debt ->
+            !debt.isSettled && if (selectedType == "EXPENSE") !debt.isOwedToMe else debt.isOwedToMe
+        }
+    }
+
     var selectedCategoryId by remember {
         mutableStateOf(
             if (transactionToEdit?.debtId != null) null else transactionToEdit?.categoryId ?: filteredCategories.firstOrNull()?.id
@@ -584,9 +590,9 @@ fun AddTransactionDialog(
                                     }
                                 }
                             }
-                            items(debts) { debt ->
+                            items(relevantDebts) { debt ->
                                 val isSelected = debt.id == selectedDebtId
-                                val debtColor = MaterialTheme.colorScheme.error
+                                val debtColor = if (debt.isOwedToMe) IncomeGreen else ExpenseRed
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) debtColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -616,8 +622,9 @@ fun AddTransactionDialog(
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(8.dp))
+                                        val debtPrefix = if (debt.isOwedToMe) "Возврат: " else "Погашение: "
                                         Text(
-                                            text = "Долг: " + debt.personName,
+                                            text = debtPrefix + debt.personName,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             maxLines = 1,

@@ -46,7 +46,17 @@ fun AddEditAccountDialog(
 ) {
     var name by remember { mutableStateOf(initialAccount?.name ?: "") }
     var selectedType by remember { mutableStateOf(initialAccount?.type ?: "DEBIT") }
-    var balanceText by remember { mutableStateOf(initialAccount?.balance?.let { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } ?: "0") }
+    var balanceText by remember {
+        mutableStateOf(
+            initialAccount?.balance?.let {
+                if (it % 1.0 == 0.0) {
+                    it.toLong().toString()
+                } else {
+                    String.format(java.util.Locale.US, "%.2f", it).trimEnd('0').trimEnd('.')
+                }
+            } ?: "0"
+        )
+    }
     var selectedCurrency by remember { mutableStateOf(initialAccount?.currency ?: "RUB") }
     var selectedColor by remember { mutableStateOf(initialAccount?.colorHex ?: "#3B82F6") }
     var selectedIcon by remember { mutableStateOf(initialAccount?.iconName ?: "credit_card") }
@@ -296,7 +306,8 @@ fun AddEditAccountDialog(
                                 errorMessage = "Введите название счёта"
                                 return@Button
                             }
-                            val bal = balanceText.toDoubleOrNull() ?: 0.0
+                            val rawBal = balanceText.replace(',', '.').toDoubleOrNull() ?: 0.0
+                            val bal = kotlin.math.round(rawBal * 100.0) / 100.0
                             onSave(name.trim(), selectedType, bal, selectedCurrency, selectedColor, selectedIcon, includeInTotal, includeInAnalytics)
                             onDismiss()
                         },

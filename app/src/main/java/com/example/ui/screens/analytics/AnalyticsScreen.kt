@@ -51,6 +51,7 @@ fun AnalyticsScreen(
 ) {
     var selectedPeriodType by remember { mutableStateOf(AnalyticsPeriodType.PAYDAY) }
     var showPeriodDropdown by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Bottom sheet states
     var showIncomeExpenseSheet by remember { mutableStateOf(false) }
@@ -97,11 +98,9 @@ fun AnalyticsScreen(
     ) {
         val (startTime, endTime) = when (selectedPeriodType) {
             AnalyticsPeriodType.PAYDAY -> {
-                // Approximate 30 day period or actual payday cycle
-                val oneDay = 86_400_000L
-                val cycleStart = now - (state.dayOfCycle - 1) * oneDay
-                val cycleEnd = cycleStart + (state.totalDaysInCycle * oneDay)
-                Pair(cycleStart, cycleEnd)
+                val prefs = com.example.service.UserFinancePreferences(context)
+                val period = prefs.calculatePaydayPeriod(state.payday, now)
+                Pair(period.startTime, period.endTime)
             }
             AnalyticsPeriodType.CURRENT_MONTH -> {
                 val cal = Calendar.getInstance().apply {

@@ -597,10 +597,24 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun contributeToGoal(goalId: Long, amount: Double) {
+    fun contributeToGoal(goalId: Long, amount: Double, accountId: Long) {
         viewModelScope.launch {
-            repository.contributeToGoal(goalId, amount)
-            _statusMessage.value = "В копилку добавлено $amount"
+            val goal = repository.getGoalById(goalId)
+            val goalName = goal?.name ?: "Копилка"
+            repository.addTransaction(
+                TransactionEntity(
+                    type = "TRANSFER",
+                    amount = amount,
+                    accountId = accountId,
+                    toAccountId = null,
+                    goalId = goalId,
+                    timestamp = System.currentTimeMillis(),
+                    note = "Пополнение: $goalName",
+                    tag = "копилка,цель",
+                    excludeFromStats = true
+                )
+            )
+            _statusMessage.value = "В копилку «$goalName» внесено ${CurrencyHelper.formatAmount(amount, "RUB")}"
         }
     }
 
@@ -662,7 +676,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun confirmPendingNotification(
         notification: PendingNotificationEntity,
         accountId: Long,
-        categoryId: Long?
+        categoryId: Long?,
+        toAccountId: Long? = null,
+        goalId: Long? = null,
+        type: String = notification.type
     ) {
         viewModelScope.launch {
             val isZenmoney = notification.packageName == "ru.zenmoney.androidsub" || notification.packageName == "ru.zenmoney.android"
@@ -677,13 +694,16 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             
             repository.addTransaction(
                 TransactionEntity(
-                    type = notification.type,
+                    type = type,
                     amount = notification.amount,
                     accountId = accountId,
-                    categoryId = categoryId,
+                    toAccountId = if (type == "TRANSFER") toAccountId else null,
+                    categoryId = if (type != "TRANSFER") categoryId else null,
+                    goalId = if (type == "TRANSFER") goalId else null,
                     timestamp = notification.timestamp,
                     note = note,
-                    tag = if (isZenmoney) "дзен-мани" else "банк-авто"
+                    tag = if (isZenmoney) "дзен-мани" else "банк-авто",
+                    excludeFromStats = (type == "TRANSFER")
                 )
             )
             repository.markNotificationProcessed(notification.id)
@@ -888,23 +908,19 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                         count++
                     }
                     com.example.ui.components.AllocationTargetType.GOAL -> {
-                        // Goals might just be tracked via expenses or transfers, but let's just make it a transfer to the first savings account or an expense.
-                        // Actually, ZenMoney doesn't have a transaction type 'GOAL'. But wait, Mani-mani Goals are tracking progress.
-                        // For now, let's just create an EXPENSE to a dummy savings category, or a special type. 
-                        // Wait, "Goal" in ManiMani is just a GoalEntity. We might need to just update the Goal's currentAmount.
-                        // But wait, where does the money go? It stays in the account unless transferred.
-                        // If they distribute to a Goal, they might want to just increase the Goal progress and deduct from the source account.
-                        // Let's create an EXPENSE transaction without a category, but with a note, and update the Goal progress.
+                        val goal = repository.getGoalById(alloc.targetId)
+                        val goalName = goal?.name ?: "Копилка"
                         repository.addTransaction(
                             TransactionEntity(
-                                type = "EXPENSE",
+                                type = "TRANSFER",
                                 amount = alloc.amount,
                                 accountId = sourceAccountId,
+                                toAccountId = null,
                                 goalId = alloc.targetId,
                                 timestamp = now + (count * 200),
-                                note = "$notePrefix (Копилка/Цель)",
-                                tag = "распределение,шлюз,цель",
-                                excludeFromStats = false
+                                note = "$notePrefix (Копилка: $goalName)",
+                                tag = "распределение,шлюз,копилка",
+                                excludeFromStats = true
                             )
                         )
                         count++
