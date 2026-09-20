@@ -37,6 +37,7 @@ class UserFinancePreferences(context: Context) {
         const val KEY_EVENING_SUMMARY_TIME = "evening_summary_time"
         private const val KEY_BANK_PUSH_INTERCEPT_ENABLED = "bank_push_intercept_enabled"
         private const val KEY_ZENMONEY_PUSH_INTERCEPT_ENABLED = "zenmoney_push_intercept_enabled"
+        private const val KEY_SPAM_FILTER_KEYWORDS = "spam_filter_keywords"
 
         const val BANK_VTB = "VTB"
         const val BANK_YANDEX = "YANDEX"
@@ -93,6 +94,30 @@ class UserFinancePreferences(context: Context) {
 
     fun setZenmoneyPushInterceptEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ZENMONEY_PUSH_INTERCEPT_ENABLED, enabled).apply()
+    }
+
+    fun getSpamKeywords(): Set<String> {
+        return prefs.getStringSet(KEY_SPAM_FILTER_KEYWORDS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun setSpamKeywords(keywords: Set<String>) {
+        prefs.edit().putStringSet(KEY_SPAM_FILTER_KEYWORDS, keywords).apply()
+    }
+
+    fun addSpamKeyword(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isNotBlank()) {
+            val current = getSpamKeywords().toMutableSet()
+            current.add(trimmed)
+            setSpamKeywords(current)
+        }
+    }
+
+    fun removeSpamKeyword(keyword: String) {
+        val current = getSpamKeywords().toMutableSet()
+        if (current.remove(keyword.trim())) {
+            setSpamKeywords(current)
+        }
     }
 
     fun isEveningSummaryEnabled(): Boolean {

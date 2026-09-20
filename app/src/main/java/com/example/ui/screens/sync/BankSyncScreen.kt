@@ -40,9 +40,12 @@ import java.util.Locale
 fun BankSyncScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
-    onConfirmNotification: (PendingNotificationEntity, Long, Long?, Long?, Long?, String) -> Unit,
+    onConfirmNotification: (PendingNotificationEntity, Long, Long?, Long?, Long?, String, String) -> Unit,
     onDismissNotification: (PendingNotificationEntity) -> Unit,
     onParseManualText: (String) -> Unit,
+    onAddToSpam: (PendingNotificationEntity, String) -> Unit = { _, _ -> },
+    onAddSpamKeyword: (String) -> Unit = {},
+    onRemoveSpamKeyword: (String) -> Unit = {},
     onTogglePushNotifications: (Boolean) -> Unit = {},
     onSendTestPush: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -55,6 +58,7 @@ fun BankSyncScreen(
     // Manual test text input dialog
     var showManualInputDialog by remember { mutableStateOf(false) }
     var manualText by remember { mutableStateOf("") }
+    var showManageSpamDialog by remember { mutableStateOf(false) }
 
     val accountsMap = remember(state.accounts) { state.accounts.associateBy { it.id } }
     val categoriesMap = remember(state.categories) { state.categories.associateBy { it.id } }
@@ -217,6 +221,46 @@ fun BankSyncScreen(
                 }
             }
 
+            // 2.5 Spam filter management card
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Спам-фильтр и реклама",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                text = "Блокировка по стоп-словам (${state.spamKeywords.size} правил)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { showManageSpamDialog = true },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Правила", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
             // 3. Pending notifications queue
             item {
                 Row(
@@ -268,11 +312,14 @@ fun BankSyncScreen(
                         accounts = state.accounts,
                         categories = state.categories,
                         goals = state.goals,
-                        onConfirm = { accId, catId, toAccId, goalId, type ->
-                            onConfirmNotification(notif, accId, catId, toAccId, goalId, type)
+                        onConfirm = { accId, catId, toAccId, goalId, type, note ->
+                            onConfirmNotification(notif, accId, catId, toAccId, goalId, type, note)
                         },
                         onDismiss = {
                             onDismissNotification(notif)
+                        },
+                        onAddToSpam = { keyword ->
+                            onAddToSpam(notif, keyword)
                         }
                     )
                 }
@@ -347,6 +394,15 @@ fun BankSyncScreen(
             }
         )
     }
+
+    if (showManageSpamDialog) {
+        ManageSpamRulesDialog(
+            spamKeywords = state.spamKeywords,
+            onAddKeyword = onAddSpamKeyword,
+            onRemoveKeyword = onRemoveSpamKeyword,
+            onDismiss = { showManageSpamDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -355,8 +411,9 @@ fun PendingNotificationCard(
     accounts: List<com.example.data.entity.AccountEntity>,
     categories: List<com.example.data.entity.CategoryEntity>,
     goals: List<GoalEntity> = emptyList(),
-    onConfirm: (accountId: Long, categoryId: Long?, toAccountId: Long?, goalId: Long?, type: String) -> Unit,
-    onDismiss: () -> Unit
+    onConfirm: (accountId: Long, categoryId: Long?, toAccountId: Long?, goalId: Long?, type: String, note: String) -> Unit,
+    onDismiss: () -> Unit,
+    onAddToSpam: (keyword: String) -> Unit = {}
 ) {
     var selectedType by remember(notification) {
         mutableStateOf(notification.type)
@@ -381,6 +438,12 @@ fun PendingNotificationCard(
     var selectedGoalId by remember(notification) {
         mutableStateOf<Long?>(null)
     }
+
+    val initialCleanNote = remember(notification) {
+        com.example.service.BankNotificationParser.cleanNote(notification.merchantOrSender, notification.rawText)
+    }
+    var noteText by remember(notification) { mutableStateOf(initialCleanNote) }
+    var showSpamDialog by remember { mutableStateOf(false) }
 
     val timeFormat = remember { SimpleDateFormat("HH:mm, dd MMM", Locale.getDefault()) }
 
@@ -465,11 +528,35 @@ fun PendingNotificationCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Inline editable note
+            OutlinedTextField(
+                value = noteText,
+                onValueChange = { noteText = it },
+                label = { Text("Заметка к операции", fontSize = 12.sp) },
+                leadingIcon = {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                },
+                trailingIcon = {
+                    if (noteText.isNotBlank()) {
+                        IconButton(onClick = { noteText = "" }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Clear, contentDescription = "Очистить", modifier = Modifier.size(14.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("notification_note_field_${notification.id}")
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             Text(
-                text = "\"${notification.rawText}\"",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                text = "Оригинал: \"${notification.rawText}\"",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
@@ -707,32 +794,57 @@ fun PendingNotificationCard(
             // Action buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.testTag("dismiss_notification_${notification.id}")
+                    onClick = { showSpamDialog = true },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("spam_notification_${notification.id}")
                 ) {
-                    Text("Пропустить")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        onConfirm(
-                            selectedAccountId,
-                            if (selectedType != "TRANSFER") selectedCategoryId else null,
-                            if (selectedType == "TRANSFER") selectedToAccountId else null,
-                            if (selectedType == "TRANSFER") selectedGoalId else null,
-                            selectedType
-                        )
-                    },
-                    modifier = Modifier.testTag("confirm_notification_${notification.id}")
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Добавить")
+                    Text("В спам", fontSize = 12.sp)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("dismiss_notification_${notification.id}")
+                    ) {
+                        Text("Пропустить")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            onConfirm(
+                                selectedAccountId,
+                                if (selectedType != "TRANSFER") selectedCategoryId else null,
+                                if (selectedType == "TRANSFER") selectedToAccountId else null,
+                                if (selectedType == "TRANSFER") selectedGoalId else null,
+                                selectedType,
+                                noteText
+                            )
+                        },
+                        modifier = Modifier.testTag("confirm_notification_${notification.id}")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Добавить")
+                    }
                 }
             }
         }
+    }
+
+    if (showSpamDialog) {
+        AddSpamRuleDialog(
+            rawText = notification.rawText,
+            onDismiss = { showSpamDialog = false },
+            onConfirm = { keyword ->
+                onAddToSpam(keyword)
+                showSpamDialog = false
+            }
+        )
     }
 }

@@ -80,31 +80,7 @@ class EveningSummaryWorker(
                 text += "Все операции разобраны, отличная работа!"
             }
             
-            PushNotificationHelper.createNotificationChannel(applicationContext)
-            val launchIntent = android.content.Intent(applicationContext, com.example.MainActivity::class.java).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val pendingIntent = android.app.PendingIntent.getActivity(
-                applicationContext,
-                2001,
-                launchIntent,
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-            )
-            val builder = androidx.core.app.NotificationCompat.Builder(applicationContext, PushNotificationHelper.CHANNEL_ID)
-                .setSmallIcon(com.example.R.drawable.ic_notification_mono)
-                .setContentTitle("🌙 Вечерняя сводка")
-                .setContentText(text)
-                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(text))
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                
-            try {
-                val notificationManager = androidx.core.app.NotificationManagerCompat.from(applicationContext)
-                notificationManager.notify(2001, builder.build())
-            } catch (e: SecurityException) {
-                // permission not granted
-            }
+            PushNotificationHelper.sendEveningSummaryNotification(applicationContext, text)
             
             return Result.success()
         } catch (e: Exception) {

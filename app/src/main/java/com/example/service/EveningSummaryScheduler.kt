@@ -1,6 +1,11 @@
 package com.example.service
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.util.Log
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -9,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 object EveningSummaryScheduler {
     private const val WORK_NAME = "EveningSummaryWork"
+    private const val ALARM_REQUEST_CODE = 3001
 
     fun schedule(context: Context, timeString: String, forceUpdate: Boolean = false) {
         val parts = timeString.split(":")
@@ -25,11 +31,41 @@ object EveningSummaryScheduler {
         }
 
         if (dueDate.before(currentDate)) {
-            dueDate.add(Calendar.HOUR_OF_DAY, 24)
+            dueDate.add(Calendar.DAY_OF_YEAR, 1)
         }
 
-        val timeDiff = dueDate.timeInMillis - currentDate.timeInMillis
+        // 1. Exact AlarmManager trigger for on-time delivery in Doze mode
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            val intent = Intent(context, EveningSummaryReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                ALARM_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
 
+            if (alarmManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        dueDate.timeInMillis,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        dueDate.timeInMillis,
+                        pendingIntent
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("EveningSummaryScheduler", "Failed to schedule exact alarm: ${e.message}")
+        }
+
+        // 2. WorkManager periodic backup
+        val timeDiff = dueDate.timeInMillis - currentDate.timeInMillis
         val workRequest = PeriodicWorkRequestBuilder<EveningSummaryWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(timeDiff, TimeUnit.MILLISECONDS)
             .build()
@@ -44,6 +80,23 @@ object EveningSummaryScheduler {
     }
 
     fun cancel(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            val intent = Intent(context, EveningSummaryReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                ALARM_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (alarmManager != null && pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        } catch (e: Exception) {
+            Log.w("EveningSummaryScheduler", "Failed to cancel alarm: ${e.message}")
+        }
+
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
     }
 }

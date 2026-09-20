@@ -98,17 +98,20 @@ class BankNotificationListener : NotificationListenerService() {
             }
         }
 
+        val userStopWords = userPrefs.getSpamKeywords()
+
         val extras = sbn.notification.extras ?: return
 
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.toList()
 
-        if (text.isNullOrBlank()) return
+        if (text.isNullOrBlank() && lines.isNullOrEmpty()) return
 
         // Check if package belongs to known banks, Zen-money, or notification text mentions financial transaction keywords
         val isKnownBankPackage = BankNotificationParser.KNOWN_BANK_PACKAGES.containsKey(packageName)
-        val fullText = "${title ?: ""} $text".lowercase()
+        val fullText = "${title ?: ""} ${text ?: ""} ${lines?.joinToString(" ") ?: ""}".lowercase()
         val hasFinancialKeywords = fullText.contains("покупка") || fullText.contains("списание") ||
                 fullText.contains("зачисление") || fullText.contains("перевод") ||
                 fullText.contains("оплата") || fullText.contains("баланс")
@@ -117,30 +120,55 @@ class BankNotificationListener : NotificationListenerService() {
             return
         }
 
-        val parsed = BankNotificationParser.parse(text, title, packageName)
-        if (parsed != null && parsed.amount > 0) {
-            // 4. Short-window signature debounce check (2.5 seconds)
+        val parsedOperations = BankNotificationParser.parseNotification(
+            title = title,
+            text = text,
+            lines = lines,
+            packageName = packageName,
+            userStopWords = userStopWords
+        )
+        if (parsedOperations.isEmpty()) return
+
+        // Filter out operations that triggered rapid debounce
+        val validOperations = parsedOperations.filter { parsed ->
             val signature = "${packageName}_${parsed.amount}_${parsed.type}_${parsed.merchant}"
             val lastSigTime = recentTransactionSignatures[signature]
             if (lastSigTime != null && (currentTime - lastSigTime) < SIGNATURE_DEBOUNCE_MS) {
                 Log.d("BankNotificationListener", "Skipping rapid duplicate signature within 2.5s: $signature")
-                return
+                false
+            } else {
+                recentTransactionSignatures[signature] = currentTime
+                true
             }
+        }
 
-            // Mark key and signature as processed immediately in memory
-            if (sbnKey != null) {
-                processedNotificationKeys[sbnKey] = currentTime
-            }
-            recentTransactionSignatures[signature] = currentTime
+        if (validOperations.isEmpty()) return
 
-            Log.d("BankNotificationListener", "Intercepted bank notification: $parsed from $packageName")
+        // Mark notification key as processed
+        if (sbnKey != null) {
+            processedNotificationKeys[sbnKey] = currentTime
+        }
 
-            serviceScope.launch {
-                processingMutex.withLock {
-                    try {
-                        val db = AppDatabase.getDatabase(applicationContext, serviceScope)
-                        val timestampVal = sbn.postTime.takeIf { it > 0 } ?: currentTime
-                        val rawTextVal = "${title?.let { "$it: " } ?: ""}$text"
+        Log.d("BankNotificationListener", "Intercepted ${validOperations.size} operations from $packageName")
+
+        serviceScope.launch {
+            processingMutex.withLock {
+                try {
+                    val db = AppDatabase.getDatabase(applicationContext, serviceScope)
+                    val timestampVal = sbn.postTime.takeIf { it > 0 } ?: currentTime
+                    val accounts = db.accountDao().getActiveAccountsSync()
+                    val categories = db.categoryDao().getAllCategoriesSync()
+
+                    val insertedNotifications = mutableListOf<Pair<Long, ParsedNotificationResult>>()
+
+                    for (parsed in validOperations) {
+                        val isZenmoneyPush = isZenmoney
+                        val zenmoneyCategory = if (isZenmoneyPush) parsed.matchedCategoryKeyword else null
+                        val rawTextVal = if (isZenmoneyPush && zenmoneyCategory != null) {
+                            "$zenmoneyCategory: ${parsed.merchant}, ${parsed.amount} ${parsed.currency}"
+                        } else {
+                            "${title?.let { "$it: " } ?: ""}${text ?: parsed.merchant}"
+                        }
 
                         // Safety check: duplicate in DB within the last 3 seconds
                         val duplicate = db.pendingNotificationDao().findRecentDuplicateByDetails(
@@ -155,56 +183,70 @@ class BankNotificationListener : NotificationListenerService() {
 
                         if (duplicate != null) {
                             Log.d("BankNotificationListener", "Skipping duplicate notification: $rawTextVal")
-                            return@withLock
+                            continue
                         }
 
-                        // Check if matching account exists by currency or card
-                        val accounts = db.accountDao().getActiveAccountsSync()
+                        // Match account
                         val matchedAccount = accounts.find { acc ->
                             (parsed.cardLast4 != null && acc.name.contains(parsed.cardLast4)) ||
                                     acc.name.contains(parsed.bankName, ignoreCase = true) ||
                                     (acc.currency == parsed.currency && !acc.isArchived)
                         } ?: accounts.firstOrNull()
 
-                        val categories = db.categoryDao().getAllCategoriesSync()
                         val suggestedCatId = BankNotificationParser.matchCategoryId(categories, parsed.matchedCategoryKeyword)
 
-                        val isZenmoneyPush = isZenmoney
-                        val zenmoneyCategory = if (isZenmoneyPush) parsed.matchedCategoryKeyword else null
-                        val actualCardLast4 = parsed.cardLast4
-                        
                         val entity = PendingNotificationEntity(
                             packageName = packageName,
                             bankName = parsed.bankName,
-                            rawText = if (isZenmoneyPush && zenmoneyCategory != null) "$zenmoneyCategory: $rawTextVal" else rawTextVal,
+                            rawText = rawTextVal,
                             type = parsed.type,
                             amount = parsed.amount,
                             currency = parsed.currency,
                             merchantOrSender = parsed.merchant,
-                            cardLast4 = actualCardLast4,
+                            cardLast4 = parsed.cardLast4,
                             suggestedCategoryId = suggestedCatId,
                             suggestedAccountId = matchedAccount?.id,
                             timestamp = timestampVal
                         )
                         val insertedId = db.pendingNotificationDao().insertNotification(entity)
+                        insertedNotifications.add(insertedId to parsed)
+                    }
 
-                        // Send push reminder with stable notification ID tied to inserted record ID
+                    if (insertedNotifications.isEmpty()) return@withLock
+
+                    // Send push reminders: single or batch summary
+                    if (insertedNotifications.size == 1) {
+                        val (insertedId, singleParsed) = insertedNotifications.first()
+                        val isZenmoneyPush = isZenmoney
+                        val zenCategory = if (isZenmoneyPush) singleParsed.matchedCategoryKeyword else null
                         PushNotificationHelper.sendBankTransactionReminder(
                             context = applicationContext,
-                            bankName = parsed.bankName,
-                            amount = parsed.amount,
-                            currency = parsed.currency,
-                            merchant = if (isZenmoneyPush && zenmoneyCategory != null && zenmoneyCategory != parsed.merchant) {
-                                "${parsed.merchant} ($zenmoneyCategory)"
+                            bankName = singleParsed.bankName,
+                            amount = singleParsed.amount,
+                            currency = singleParsed.currency,
+                            merchant = if (isZenmoneyPush && zenCategory != null && zenCategory != singleParsed.merchant) {
+                                "${singleParsed.merchant} ($zenCategory)"
                             } else {
-                                parsed.merchant
+                                singleParsed.merchant
                             },
-                            type = parsed.type,
+                            type = singleParsed.type,
                             notificationId = (insertedId % 100000).toInt() + 1000
                         )
-                    } catch (e: Exception) {
-                        Log.e("BankNotificationListener", "Failed to process bank notification", e)
+                    } else {
+                        // Aggregate summary push for multiple operations
+                        val totalSum = insertedNotifications.sumOf { it.second.amount }
+                        val firstParsed = insertedNotifications.first().second
+                        PushNotificationHelper.sendBatchBankTransactionReminder(
+                            context = applicationContext,
+                            bankName = firstParsed.bankName,
+                            count = insertedNotifications.size,
+                            totalAmount = totalSum,
+                            currency = firstParsed.currency,
+                            notificationId = 8888
+                        )
                     }
+                } catch (e: Exception) {
+                    Log.e("BankNotificationListener", "Failed to process bank notification", e)
                 }
             }
         }

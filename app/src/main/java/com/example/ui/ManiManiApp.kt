@@ -199,14 +199,23 @@ fun ManiManiApp(
                             returnToNotificationSettingsFromBankSync = false
                         }
                     },
-                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, type ->
-                        viewModel.confirmPendingNotification(notif, accId, catId, toAccId, goalId, type)
+                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, type, note ->
+                        viewModel.confirmPendingNotification(notif, accId, catId, toAccId, goalId, type, note)
                     },
                     onDismissNotification = { notif ->
                         viewModel.dismissPendingNotification(notif)
                     },
                     onParseManualText = { text ->
                         viewModel.parseAndProcessManualText(text)
+                    },
+                    onAddToSpam = { notif, keyword ->
+                        viewModel.addSpamKeywordAndDismiss(notif, keyword)
+                    },
+                    onAddSpamKeyword = { keyword ->
+                        viewModel.addSpamKeyword(keyword)
+                    },
+                    onRemoveSpamKeyword = { keyword ->
+                        viewModel.removeSpamKeyword(keyword)
                     },
                     onTogglePushNotifications = { viewModel.setPushNotificationsEnabled(it) },
                     onSendTestPush = { viewModel.sendTestPushNotification() }

@@ -58,86 +58,233 @@ object BankNotificationParser {
      * - "Зачисление зарплаты 85 000 ₽ на карту *5678"
      * - "Оплата 420 руб. Пятерочка"
      */
-    fun parse(text: String, title: String? = null, packageName: String = ""): ParsedNotificationResult? {
-        val isZenmoney = packageName == "ru.zenmoney.androidsub" || packageName == "ru.zenmoney.android"
-        
-        if (isZenmoney && title != null) {
-            // Zenmoney format in title:
-            // "98,98 ₽, Продукты, Красное&Белое"
-            // "209,97 ₽, Продукты, Самбери"
-            // "10 ₽, Семейные переводы, Алексей Андреевич С."
-            // "500 ₽, Кафе"
-            val zenPattern = Regex("""^([0-9\s\u00A0]+(?:[.,][0-9]{1,2})?\s*(?:₽|руб\.?|rub|р\.|\$|usd|€|eur|₸|kzt|byn|cny)?)\s*,\s*([^,]+?)(?:,\s*(.+))?$""", RegexOption.IGNORE_CASE)
-            val match = zenPattern.find(title.trim())
+    private val SYSTEM_STOP_PATTERNS = listOf(
+        Regex("""оформите\s+кредит""", RegexOption.IGNORE_CASE),
+        Regex("""вам\s+доступно""", RegexOption.IGNORE_CASE),
+        Regex("""вам\s+одобрен""", RegexOption.IGNORE_CASE),
+        Regex("""предварительно\s+одобрен""", RegexOption.IGNORE_CASE),
+        Regex("""подайте\s+заявку""", RegexOption.IGNORE_CASE),
+        Regex("""кэшбэк\s+до\s+\d+""", RegexOption.IGNORE_CASE),
+        Regex("""ставка\s+от\s+\d+""", RegexOption.IGNORE_CASE),
+        Regex("""откройте\s+вклад""", RegexOption.IGNORE_CASE),
+        Regex("""код\s+подтверждения""", RegexOption.IGNORE_CASE),
+        Regex("""никому\s+не\s+сообщайте""", RegexOption.IGNORE_CASE),
+        Regex("""пароль\s+для\s+входа""", RegexOption.IGNORE_CASE),
+        Regex("""специальное\s+предложение""", RegexOption.IGNORE_CASE),
+        Regex("""выгодное\s+предложение""", RegexOption.IGNORE_CASE),
+        Regex("""лимит\s+по\s+карте\s+увеличен""", RegexOption.IGNORE_CASE)
+    )
 
+    fun isSpamOrMarketing(text: String, userStopWords: Set<String> = emptySet()): Boolean {
+        val lower = text.lowercase()
+        // Check user custom stop words first
+        for (stopWord in userStopWords) {
+            val trimmed = stopWord.trim().lowercase()
+            if (trimmed.isNotBlank() && lower.contains(trimmed)) {
+                return true
+            }
+        }
+        // Check system marketing patterns
+        for (pattern in SYSTEM_STOP_PATTERNS) {
+            if (pattern.containsMatchIn(text)) {
+                // Ignore if it's not a real receipt (i.e. if it lacks definite transaction verbs)
+                val hasDefiniteTransactionVerb = lower.contains("покупка") || lower.contains("списание") ||
+                        lower.contains("оплачено") || lower.contains("оплата товаров") || lower.contains("чек")
+                if (!hasDefiniteTransactionVerb) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * Cleans merchant name or extracts a user-friendly note from the raw push text.
+     */
+    fun cleanNote(merchant: String, rawText: String = ""): String {
+        var clean = merchant.trim()
+        if (clean.isBlank() || clean == "Покупка" || clean == "Пополнение счёта" || clean == "Операция Дзен-мани") {
+            // Try extracting from raw text
+            val firstLine = rawText.lines().firstOrNull()?.trim() ?: ""
+            if (firstLine.isNotBlank() && !firstLine.startsWith("Новых операций")) {
+                clean = firstLine
+            }
+        }
+        // Remove junk phrases from services (e.g. Zenmoney promo footer)
+        clean = clean.replace(Regex("""(?i)\s*в плане ещё.*"""), "")
+            .replace(Regex("""(?i)\s*полная статистика.*"""), "")
+            .replace(Regex("""(?i)\s*доступно:.*"""), "")
+            .trim()
+            .removeSuffix(",")
+
+        if (clean.endsWith(".") && !clean.matches(Regex(""".*(?:^|\s)[a-zA-Zа-яА-ЯёЁ]\.$"""))) {
+            clean = clean.removeSuffix(".")
+        }
+
+        return clean.trim().ifBlank { merchant }
+    }
+
+    /**
+     * Parses standard bank push notifications or SMS texts.
+     * Retained for backward compatibility, returning the first parsed operation.
+     */
+    fun parse(text: String, title: String? = null, packageName: String = "", userStopWords: Set<String> = emptySet()): ParsedNotificationResult? {
+        return parseNotification(title = title, text = text, lines = null, packageName = packageName, userStopWords = userStopWords).firstOrNull()
+    }
+
+    /**
+     * Parses notifications returning all discovered transactions (e.g. multi-line batch from Zen-money).
+     */
+    fun parseNotification(
+        title: String? = null,
+        text: String? = null,
+        lines: List<CharSequence>? = null,
+        packageName: String = "",
+        userStopWords: Set<String> = emptySet()
+    ): List<ParsedNotificationResult> {
+        val combinedFullText = "${title ?: ""} ${text ?: ""} ${lines?.joinToString(" ") ?: ""}".trim()
+        if (combinedFullText.isBlank()) return emptyList()
+
+        // Check spam filter
+        if (isSpamOrMarketing(combinedFullText, userStopWords)) {
+            return emptyList()
+        }
+
+        val isZenmoney = packageName == "ru.zenmoney.androidsub" || packageName == "ru.zenmoney.android"
+
+        if (isZenmoney) {
+            return parseZenmoneyNotification(title, text, lines)
+        }
+
+        // Standard single bank push parsing
+        val single = parseStandardBankPush(title, text ?: "", packageName)
+        return if (single != null) listOf(single) else emptyList()
+    }
+
+    private fun parseZenmoneyNotification(
+        title: String?,
+        text: String?,
+        lines: List<CharSequence>?
+    ): List<ParsedNotificationResult> {
+        val results = mutableListOf<ParsedNotificationResult>()
+
+        // 1. Collect all candidate lines
+        val candidateLines = mutableListOf<String>()
+        lines?.forEach { line ->
+            val str = line.toString().trim()
+            if (str.isNotBlank()) candidateLines.add(str)
+        }
+        text?.lines()?.forEach { line ->
+            val str = line.trim()
+            if (str.isNotBlank() && !candidateLines.contains(str)) {
+                candidateLines.add(str)
+            }
+        }
+
+        val zenPattern = Regex("""^([0-9\s\u00A0]+(?:[.,][0-9]{1,2})?\s*(?:₽|руб\.?|rub|р\.|\$|usd|€|eur|₸|kzt|byn|cny)?)\s*,\s*([^,]+?)(?:,\s*(.+))?$""", RegexOption.IGNORE_CASE)
+
+        // Try to extract bank / account name from text or lines
+        // Examples:
+        // "ВТБ, Доступно: 14 359,83 ₽"
+        // "Июль, Доступно: 15 379,69 ₽"
+        var bankName = "Дзен-мани"
+        val fullContent = "${text ?: ""}\n${candidateLines.joinToString("\n")}"
+        val bankRegex = Regex("""(?:^|\n)([^\n,]+?)\s*,\s*(?:доступно|баланс|остаток):""", RegexOption.IGNORE_CASE)
+        val bankMatch = bankRegex.find(fullContent)
+        if (bankMatch != null) {
+            val candidate = bankMatch.groups[1]?.value?.trim()?.trimEnd('.', ',')
+            if (!candidate.isNullOrBlank() && candidate.length <= 25) {
+                bankName = candidate
+            }
+        }
+
+        fun tryParseLine(line: String): ParsedNotificationResult? {
+            val trimmed = line.trim()
+            // Skip summary headers like "Новых операций: 3"
+            if (trimmed.startsWith("Новых операций", ignoreCase = true) ||
+                trimmed.startsWith("Операций:", ignoreCase = true) ||
+                trimmed.contains("доступно:", ignoreCase = true) ||
+                trimmed.contains("баланс:", ignoreCase = true)) {
+                return null
+            }
+
+            val match = zenPattern.find(trimmed)
             val (amountRaw, categoryName, merchantRaw) = if (match != null) {
                 Triple(match.groups[1]?.value?.trim() ?: "", match.groups[2]?.value?.trim() ?: "", match.groups[3]?.value?.trim())
             } else {
-                // Fallback: split by comma followed by whitespace
-                val parts = title.split(Regex(""",\s+""")).map { it.trim() }
-                Triple(parts.getOrElse(0) { "" }, parts.getOrElse(1) { "" }, parts.getOrNull(2))
+                val parts = trimmed.split(Regex(""",\s+""")).map { it.trim() }
+                if (parts.size >= 2) {
+                    Triple(parts.getOrElse(0) { "" }, parts.getOrElse(1) { "" }, parts.getOrNull(2))
+                } else {
+                    return null
+                }
             }
 
             val amountStr = amountRaw.replace("[^0-9.,]".toRegex(), "").replace(" ", "").replace("\u00A0", "").replace(",", ".")
             val amount = amountStr.toDoubleOrNull() ?: 0.0
+            if (amount <= 0.0) return null
 
-            if (amount > 0) {
-                val merchant = if (!merchantRaw.isNullOrBlank()) {
-                    merchantRaw
-                } else if (categoryName.isNotBlank()) {
-                    categoryName
-                } else {
-                    "Операция Дзен-мани"
-                }
+            val merchant = if (!merchantRaw.isNullOrBlank()) {
+                cleanNote(merchantRaw)
+            } else if (categoryName.isNotBlank()) {
+                cleanNote(categoryName)
+            } else {
+                "Операция Дзен-мани"
+            }
 
-                // Determine currency
-                val currencyStr = amountRaw.lowercase()
-                val currency = when {
-                    currencyStr.contains("$") || currencyStr.contains("usd") -> "USD"
-                    currencyStr.contains("€") || currencyStr.contains("eur") -> "EUR"
-                    currencyStr.contains("₸") || currencyStr.contains("kzt") -> "KZT"
-                    currencyStr.contains("byn") -> "BYN"
-                    currencyStr.contains("cny") -> "CNY"
-                    else -> "RUB"
-                }
+            // Determine currency
+            val currencyStr = amountRaw.lowercase()
+            val currency = when {
+                currencyStr.contains("$") || currencyStr.contains("usd") -> "USD"
+                currencyStr.contains("€") || currencyStr.contains("eur") -> "EUR"
+                currencyStr.contains("₸") || currencyStr.contains("kzt") -> "KZT"
+                currencyStr.contains("byn") -> "BYN"
+                currencyStr.contains("cny") -> "CNY"
+                else -> "RUB"
+            }
 
-                // Try to extract bank / account name from text
-                // Examples:
-                // "...\nВТБ, Доступно: 14 359,83 ₽"
-                // "...\nИюль, Доступно: 15 379,69 ₽"
-                var bankName = "Дзен-мани"
-                val bankRegex = Regex("""(?:^|\n)([^\n,]+?)\s*,\s*(?:доступно|баланс|остаток):""", RegexOption.IGNORE_CASE)
-                val bankMatch = bankRegex.find(text)
-                if (bankMatch != null) {
-                    val candidate = bankMatch.groups[1]?.value?.trim()?.trimEnd('.', ',')
-                    if (!candidate.isNullOrBlank() && candidate.length <= 25) {
-                        bankName = candidate
-                    }
-                }
+            // Transaction type
+            val catLower = categoryName.lowercase()
+            var type = "EXPENSE"
+            if (catLower.contains("доход") || catLower.contains("зарплат") || catLower.contains("пополнен") ||
+                catLower.contains("аванс") || catLower.contains("возврат") || catLower.contains("кэшбэк") ||
+                catLower.contains("начислен")) {
+                type = "INCOME"
+            } else if (catLower.contains("перевод") || trimmed.lowercase().contains("перевод")) {
+                type = "TRANSFER"
+            }
 
-                // Transaction type
-                val catLower = categoryName.lowercase()
-                var type = "EXPENSE"
-                if (catLower.contains("доход") || catLower.contains("зарплат") || catLower.contains("пополнен") ||
-                    catLower.contains("аванс") || catLower.contains("возврат") || catLower.contains("кэшбэк") ||
-                    catLower.contains("начислен")) {
-                    type = "INCOME"
-                } else if (catLower.contains("перевод") || text.lowercase().contains("перевод")) {
-                    type = "TRANSFER"
-                }
+            return ParsedNotificationResult(
+                bankName = bankName,
+                type = type,
+                amount = amount,
+                currency = currency,
+                merchant = merchant,
+                cardLast4 = null,
+                matchedCategoryKeyword = categoryName.ifBlank { null }
+            )
+        }
 
-                return ParsedNotificationResult(
-                    bankName = bankName,
-                    type = type,
-                    amount = amount,
-                    currency = currency,
-                    merchant = merchant,
-                    cardLast4 = null,
-                    matchedCategoryKeyword = categoryName.ifBlank { null }
-                )
+        // Case A: Multiple lines extracted from lines/text
+        for (line in candidateLines) {
+            val res = tryParseLine(line)
+            if (res != null) {
+                results.add(res)
             }
         }
 
+        // Case B: Single operation where title itself holds the transaction
+        if (results.isEmpty() && title != null) {
+            val titleRes = tryParseLine(title)
+            if (titleRes != null) {
+                results.add(titleRes)
+            }
+        }
+
+        return results
+    }
+
+    private fun parseStandardBankPush(title: String?, text: String, packageName: String): ParsedNotificationResult? {
         val raw = "${title ?: ""} $text".trim()
         if (raw.isBlank()) return null
 
@@ -156,16 +303,14 @@ object BankNotificationParser {
                     lower.contains("чек") || lower.contains("снятие") || lower.contains("платёж") ||
                     lower.contains("платеж") || lower.contains("отправлен") -> "EXPENSE"
 
-            else -> "EXPENSE" // Default assumption for financial alerts with amounts
+            else -> "EXPENSE"
         }
 
         // 2. Extract Amount
-        // Look for patterns like: 1 250.50 ₽, 1250,50 руб, 5000.00 RUB, $15.99, 15000 KZT
         val amountRegex = Regex("""(?<!\w)(?:([0-9]{1,3}(?:[\s\u00A0][0-9]{3})*(?:[.,][0-9]{1,2})?)|([0-9]+(?:[.,][0-9]{1,2})?))\s*(₽|руб\.?|rub|р\.|\$|usd|€|eur|₸|kzt|byn|cny)?""", RegexOption.IGNORE_CASE)
         val matches = amountRegex.findAll(raw).toList()
         if (matches.isEmpty()) return null
 
-        // Usually the first valid amount in the message is the transaction amount (second is often "Доступно / Баланс")
         var matchedAmount: Double? = null
         var detectedCurrency = "RUB"
 
@@ -178,7 +323,6 @@ object BankNotificationParser {
 
             val parsedNum = numStr?.toDoubleOrNull()
             if (parsedNum != null && parsedNum > 0) {
-                // Avoid matching card numbers like *1234 or dates like 2026
                 val beforeMatch = raw.substring(0, match.range.first).lowercase()
                 if (beforeMatch.endsWith("карта *") || beforeMatch.endsWith("карте *") || beforeMatch.endsWith("счет *")) {
                     continue
@@ -233,7 +377,7 @@ object BankNotificationParser {
             type = type,
             amount = matchedAmount,
             currency = detectedCurrency,
-            merchant = merchant,
+            merchant = cleanNote(merchant, raw),
             cardLast4 = cardLast4,
             matchedCategoryKeyword = matchedKeyword
         )

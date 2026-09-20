@@ -16,11 +16,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import androidx.room.withTransaction
+import com.example.data.database.AppDatabase
 import java.io.InputStream
 import java.io.OutputStream
 
 class BackupRepository(
     private val context: Context,
+    private val appDatabase: AppDatabase,
     private val accountDao: AccountDao,
     private val categoryDao: CategoryDao,
     private val transactionDao: TransactionDao,
@@ -61,43 +64,61 @@ class BackupRepository(
                 eveningSummaryEnabled = preferences.isEveningSummaryEnabled(),
                 eveningSummaryTime = preferences.getEveningSummaryTime(),
                 bankPushInterceptEnabled = preferences.isBankPushInterceptEnabled(),
-                zenmoneyPushInterceptEnabled = preferences.isZenmoneyPushInterceptEnabled()
+                zenmoneyPushInterceptEnabled = preferences.isZenmoneyPushInterceptEnabled(),
+                spamKeywords = preferences.getSpamKeywords().toList()
             )
         )
     }
 
+    fun validateBackupData(backup: BackupData) {
+        if (backup.accounts.isEmpty()) {
+            throw IllegalStateException("Файл бэкапа поврежден или не содержит счетов. База данных сохранена в неизменном виде.")
+        }
+        if (backup.accounts.any { it.name.isBlank() }) {
+            throw IllegalStateException("Файл бэкапа поврежден: обнаружены счета с пустыми названиями. Откат изменений.")
+        }
+        if (backup.categories.any { it.name.isBlank() }) {
+            throw IllegalStateException("Файл бэкапа поврежден: обнаружены категории с пустыми названиями. Откат изменений.")
+        }
+    }
+
     suspend fun restoreBackupData(backup: BackupData) = withContext(Dispatchers.IO) {
-        // Clear old data
-        accountDao.deleteAllAccounts()
-        categoryDao.deleteAllCategories()
-        transactionDao.deleteAllTransactions()
-        budgetDao.deleteAllBudgets()
-        goalDao.deleteAllGoals()
-        debtDao.deleteAllDebts()
-        plannedTransactionDao.deleteAllPlannedTransactions()
+        // 1. Dry-run validation before touching database
+        validateBackupData(backup)
 
-        // Insert new data
-        // We use insert for all of them. For accounts/categories with predefined IDs from backup
-        // the OnConflictStrategy.REPLACE will keep the IDs intact.
-        backup.accounts.forEach { accountDao.insertAccount(it) }
-        categoryDao.insertCategories(backup.categories)
-        backup.transactions.forEach { transactionDao.insertTransaction(it) }
-        backup.budgets.forEach { budgetDao.insertBudget(it) }
-        backup.goals.forEach { goalDao.insertGoal(it) }
-        backup.debts.forEach { debtDao.insertDebt(it) }
-        backup.plannedTransactions.forEach { plannedTransactionDao.insertPlannedTransaction(it) }
+        // 2. Atomic Room transaction (all-or-nothing rollback on any failure)
+        appDatabase.withTransaction {
+            // Clear old data
+            accountDao.deleteAllAccounts()
+            categoryDao.deleteAllCategories()
+            transactionDao.deleteAllTransactions()
+            budgetDao.deleteAllBudgets()
+            goalDao.deleteAllGoals()
+            debtDao.deleteAllDebts()
+            plannedTransactionDao.deleteAllPlannedTransactions()
 
-        // Restore preferences
-        preferences.setPaydayDay(backup.preferences.paydayDay)
-        preferences.setBankOfTheMonth(backup.preferences.bankOfTheMonth)
-        preferences.setPushNotificationsEnabled(backup.preferences.pushNotificationsEnabled)
-        try {
-            preferences.setThemeMode(com.example.service.AppThemeMode.valueOf(backup.preferences.themeMode))
-        } catch (e: Exception) {}
-        preferences.setEveningSummaryEnabled(backup.preferences.eveningSummaryEnabled)
-        preferences.setEveningSummaryTime(backup.preferences.eveningSummaryTime)
-        preferences.setBankPushInterceptEnabled(backup.preferences.bankPushInterceptEnabled)
-        preferences.setZenmoneyPushInterceptEnabled(backup.preferences.zenmoneyPushInterceptEnabled)
+            // Insert new data
+            backup.accounts.forEach { accountDao.insertAccount(it) }
+            categoryDao.insertCategories(backup.categories)
+            backup.transactions.forEach { transactionDao.insertTransaction(it) }
+            backup.budgets.forEach { budgetDao.insertBudget(it) }
+            backup.goals.forEach { goalDao.insertGoal(it) }
+            backup.debts.forEach { debtDao.insertDebt(it) }
+            backup.plannedTransactions.forEach { plannedTransactionDao.insertPlannedTransaction(it) }
+
+            // Restore preferences
+            preferences.setPaydayDay(backup.preferences.paydayDay)
+            preferences.setBankOfTheMonth(backup.preferences.bankOfTheMonth)
+            preferences.setPushNotificationsEnabled(backup.preferences.pushNotificationsEnabled)
+            try {
+                preferences.setThemeMode(com.example.service.AppThemeMode.valueOf(backup.preferences.themeMode))
+            } catch (e: Exception) {}
+            preferences.setEveningSummaryEnabled(backup.preferences.eveningSummaryEnabled)
+            preferences.setEveningSummaryTime(backup.preferences.eveningSummaryTime)
+            preferences.setBankPushInterceptEnabled(backup.preferences.bankPushInterceptEnabled)
+            preferences.setZenmoneyPushInterceptEnabled(backup.preferences.zenmoneyPushInterceptEnabled)
+            preferences.setSpamKeywords(backup.preferences.spamKeywords.toSet())
+        }
     }
 
     suspend fun exportLocal(uri: Uri) = withContext(Dispatchers.IO) {

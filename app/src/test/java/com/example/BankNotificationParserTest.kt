@@ -103,4 +103,76 @@ class BankNotificationParserTest {
         assertEquals(2L, BankNotificationParser.matchCategoryId(categories, "Кафе"))
         assertEquals(3L, BankNotificationParser.matchCategoryId(categories, "Семейные переводы"))
     }
+
+    @Test
+    fun testParseZenmoneyBatchNotificationWithSummaryHeader() {
+        val title = "Новых операций: 3"
+        val lines = listOf(
+            "269,97 ₽, Продукты, Пятёрочка",
+            "808,91 ₽, Кафе, Додо Пицца",
+            "1 500 ₽, Связь, МТС",
+            "ВТБ, Доступно: 14 359,83 ₽"
+        )
+        val results = BankNotificationParser.parseNotification(
+            title = title,
+            lines = lines,
+            packageName = "ru.zenmoney.androidsub"
+        )
+
+        assertEquals(3, results.size)
+
+        val op1 = results[0]
+        assertEquals("ВТБ", op1.bankName)
+        assertEquals(269.97, op1.amount, 0.001)
+        assertEquals("Пятёрочка", op1.merchant)
+        assertEquals("Продукты", op1.matchedCategoryKeyword)
+        assertEquals("EXPENSE", op1.type)
+
+        val op2 = results[1]
+        assertEquals(808.91, op2.amount, 0.001)
+        assertEquals("Додо Пицца", op2.merchant)
+        assertEquals("Кафе", op2.matchedCategoryKeyword)
+
+        val op3 = results[2]
+        assertEquals(1500.0, op3.amount, 0.001)
+        assertEquals("МТС", op3.merchant)
+        assertEquals("Связь", op3.matchedCategoryKeyword)
+
+        // Ensure none of the operations is a phantom 3 ₽ expense
+        assertTrue(results.none { it.amount == 3.0 })
+    }
+
+    @Test
+    fun testSpamFilterBankCreditOffer() {
+        val text = "Выгодное предложение, вам доступно 500000 на основные расходы. Оформите кредит прямо сейчас"
+        val results = BankNotificationParser.parseNotification(
+            title = "Т-Банк",
+            text = text,
+            packageName = "com.idamob.tinkoff.android"
+        )
+        assertTrue(results.isEmpty())
+        assertNull(BankNotificationParser.parse(text, title = "Т-Банк", packageName = "com.idamob.tinkoff.android"))
+    }
+
+    @Test
+    fun testCustomUserSpamStopWords() {
+        val text = "Ваш лимит по карте 100 000 ₽. Подробнее в приложении"
+        val stopWords = setOf("лимит по карте")
+
+        val results = BankNotificationParser.parseNotification(
+            title = "Сбербанк",
+            text = text,
+            packageName = "ru.sberbankmobile",
+            userStopWords = stopWords
+        )
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun testCleanNoteTrimsServiceGarbage() {
+        val merchant = "Самбери"
+        val rawText = "Самбери\nВ плане ещё 5 000 ₽. Полная статистика доступна по подписке.\nВТБ, Доступно: 14 359,83 ₽"
+        val cleaned = BankNotificationParser.cleanNote(merchant, rawText)
+        assertEquals("Самбери", cleaned)
+    }
 }

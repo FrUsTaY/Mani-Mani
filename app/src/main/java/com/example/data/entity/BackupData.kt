@@ -24,5 +24,6 @@ data class BackupPreferences(
     val eveningSummaryEnabled: Boolean,
     val eveningSummaryTime: String,
     val bankPushInterceptEnabled: Boolean,
-    val zenmoneyPushInterceptEnabled: Boolean
+    val zenmoneyPushInterceptEnabled: Boolean,
+    val spamKeywords: List<String> = emptyList()
 )

@@ -68,7 +68,8 @@ data class FinanceUiState(
     val isBankPushInterceptEnabled: Boolean = true,
     val isZenmoneyPushInterceptEnabled: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
-    val isFirstLaunch: Boolean = false
+    val isFirstLaunch: Boolean = false,
+    val spamKeywords: Set<String> = emptySet()
 )
 
 @Suppress("UNCHECKED_CAST")
@@ -120,7 +121,8 @@ data class AppConfig(
     val isPushNotificationsEnabled: Boolean,
     val isBankPushInterceptEnabled: Boolean,
     val isZenmoneyPushInterceptEnabled: Boolean,
-    val themeMode: AppThemeMode
+    val themeMode: AppThemeMode,
+    val spamKeywords: Set<String> = emptySet()
 )
 
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
@@ -149,6 +151,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     private val _themeMode = MutableStateFlow(userFinancePrefs.getThemeMode())
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
 
+    private val _spamKeywords = MutableStateFlow(userFinancePrefs.getSpamKeywords())
+    val spamKeywords: StateFlow<Set<String>> = _spamKeywords.asStateFlow()
+
     private val appConfigFlow = combine(
         _baseCurrency,
         _payday,
@@ -157,9 +162,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             _isPushNotificationsEnabled,
             _isBankPushInterceptEnabled,
             _isZenmoneyPushInterceptEnabled,
-            _themeMode
-        ) { pushEnabled, bankIntercept, zenmoneyIntercept, theme ->
-            listOf(pushEnabled, bankIntercept, zenmoneyIntercept, theme)
+            _themeMode,
+            _spamKeywords
+        ) { pushEnabled, bankIntercept, zenmoneyIntercept, theme, spam ->
+            listOf(pushEnabled, bankIntercept, zenmoneyIntercept, theme, spam)
         }
     ) { curr, payday, bank, extras ->
         AppConfig(
@@ -169,7 +175,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             isPushNotificationsEnabled = extras[0] as Boolean,
             isBankPushInterceptEnabled = extras[1] as Boolean,
             isZenmoneyPushInterceptEnabled = extras[2] as Boolean,
-            themeMode = extras[3] as AppThemeMode
+            themeMode = extras[3] as AppThemeMode,
+            spamKeywords = extras[4] as Set<String>
         )
     }
 
@@ -190,7 +197,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     init {
         val database = AppDatabase.getDatabase(application, viewModelScope)
         repository = FinanceRepository(database)
-        backupRepository = BackupRepository(application, database.accountDao(), database.categoryDao(), database.transactionDao(), database.budgetDao(), database.goalDao(), database.debtDao(), database.plannedTransactionDao(), userFinancePrefs)
+        backupRepository = BackupRepository(application, database, database.accountDao(), database.categoryDao(), database.transactionDao(), database.budgetDao(), database.goalDao(), database.debtDao(), database.plannedTransactionDao(), userFinancePrefs)
         
         // Restore evening summary schedule if enabled
         if (_isEveningSummaryEnabled.value) {
@@ -331,7 +338,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             isPushNotificationsEnabled = config.isPushNotificationsEnabled,
             isBankPushInterceptEnabled = config.isBankPushInterceptEnabled,
             isZenmoneyPushInterceptEnabled = config.isZenmoneyPushInterceptEnabled,
-            themeMode = config.themeMode
+            themeMode = config.themeMode,
+            spamKeywords = config.spamKeywords
         )
     }
 
@@ -679,17 +687,22 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         categoryId: Long?,
         toAccountId: Long? = null,
         goalId: Long? = null,
-        type: String = notification.type
+        type: String = notification.type,
+        note: String? = null
     ) {
         viewModelScope.launch {
             val isZenmoney = notification.packageName == "ru.zenmoney.androidsub" || notification.packageName == "ru.zenmoney.android"
-            var note = "${notification.bankName}: ${notification.merchantOrSender}"
-            if (isZenmoney) {
-                // We prepended the category to rawText in BankNotificationListener for Zenmoney
-                val cat = notification.rawText.substringBefore(":")
-                if (cat.isNotBlank() && cat != notification.rawText) {
-                    note = cat.trim()
+            val finalNote = if (!note.isNullOrBlank()) {
+                note.trim()
+            } else {
+                var autoNote = "${notification.bankName}: ${notification.merchantOrSender}"
+                if (isZenmoney) {
+                    val cat = notification.rawText.substringBefore(":")
+                    if (cat.isNotBlank() && cat != notification.rawText) {
+                        autoNote = cat.trim()
+                    }
                 }
+                autoNote
             }
             
             repository.addTransaction(
@@ -701,7 +714,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     categoryId = if (type != "TRANSFER") categoryId else null,
                     goalId = if (type == "TRANSFER") goalId else null,
                     timestamp = notification.timestamp,
-                    note = note,
+                    note = finalNote,
                     tag = if (isZenmoney) "дзен-мани" else "банк-авто",
                     excludeFromStats = (type == "TRANSFER")
                 )
@@ -724,41 +737,71 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun addSpamKeyword(keyword: String) {
+        userFinancePrefs.addSpamKeyword(keyword)
+        _spamKeywords.value = userFinancePrefs.getSpamKeywords()
+        _statusMessage.value = "Фраза «$keyword» добавлена в спам-фильтр"
+    }
+
+    fun removeSpamKeyword(keyword: String) {
+        userFinancePrefs.removeSpamKeyword(keyword)
+        _spamKeywords.value = userFinancePrefs.getSpamKeywords()
+        _statusMessage.value = "Фраза удалена из спам-фильтра"
+    }
+
+    fun addSpamKeywordAndDismiss(notification: PendingNotificationEntity, keyword: String) {
+        addSpamKeyword(keyword)
+        dismissPendingNotification(notification)
+    }
+
     fun parseAndProcessManualText(text: String) {
         viewModelScope.launch {
-            val parsed = com.example.service.BankNotificationParser.parse(text)
-            if (parsed == null || parsed.amount <= 0) {
-                _statusMessage.value = "Не удалось распознать банковское сообщение"
+            val userStopWords = userFinancePrefs.getSpamKeywords()
+            val parsedList = com.example.service.BankNotificationParser.parseNotification(
+                text = text,
+                userStopWords = userStopWords
+            )
+            if (parsedList.isEmpty()) {
+                _statusMessage.value = "Не удалось распознать операцию или сообщение отфильтровано как реклама"
                 return@launch
             }
 
             val accounts = repository.activeAccounts.firstOrNull() ?: emptyList()
-            val matchedAccount = accounts.find { acc ->
-                (parsed.cardLast4 != null && acc.name.contains(parsed.cardLast4)) ||
-                        acc.name.contains(parsed.bankName, ignoreCase = true) ||
-                        (acc.currency == parsed.currency && !acc.isArchived)
-            } ?: accounts.firstOrNull()
-
             val categories = repository.allCategories.firstOrNull() ?: emptyList()
-            val matchedCatId = com.example.service.BankNotificationParser.matchCategoryId(
-                categories,
-                parsed.matchedCategoryKeyword
-            )
 
-            val pending = PendingNotificationEntity(
-                packageName = "manual.input",
-                bankName = parsed.bankName,
-                rawText = text,
-                type = parsed.type,
-                amount = parsed.amount,
-                currency = parsed.currency,
-                merchantOrSender = parsed.merchant,
-                cardLast4 = parsed.cardLast4,
-                suggestedAccountId = matchedAccount?.id,
-                suggestedCategoryId = matchedCatId
-            )
-            repository.insertPendingNotification(pending)
-            _statusMessage.value = "Сообщение распознано: ${parsed.amount} ${parsed.currency} (${parsed.merchant})"
+            for (parsed in parsedList) {
+                val matchedAccount = accounts.find { acc ->
+                    (parsed.cardLast4 != null && acc.name.contains(parsed.cardLast4)) ||
+                            acc.name.contains(parsed.bankName, ignoreCase = true) ||
+                            (acc.currency == parsed.currency && !acc.isArchived)
+                } ?: accounts.firstOrNull()
+
+                val matchedCatId = com.example.service.BankNotificationParser.matchCategoryId(
+                    categories,
+                    parsed.matchedCategoryKeyword
+                )
+
+                val pending = PendingNotificationEntity(
+                    packageName = "manual.input",
+                    bankName = parsed.bankName,
+                    rawText = text,
+                    type = parsed.type,
+                    amount = parsed.amount,
+                    currency = parsed.currency,
+                    merchantOrSender = parsed.merchant,
+                    cardLast4 = parsed.cardLast4,
+                    suggestedAccountId = matchedAccount?.id,
+                    suggestedCategoryId = matchedCatId
+                )
+                repository.insertPendingNotification(pending)
+            }
+
+            _statusMessage.value = if (parsedList.size == 1) {
+                val first = parsedList.first()
+                "Распознано: ${first.amount} ${first.currency} (${first.merchant})"
+            } else {
+                "Распознано операций: ${parsedList.size}"
+            }
         }
     }
 
