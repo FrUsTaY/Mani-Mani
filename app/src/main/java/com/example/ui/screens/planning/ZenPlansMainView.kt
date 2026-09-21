@@ -597,7 +597,7 @@ fun ZenPlansMainView(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "Ожидаемые операции",
+                                        text = "Деньги на период",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 17.sp
@@ -650,13 +650,34 @@ fun ZenPlansMainView(
                                     )
 
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    TextButton(
-                                        onClick = { showAddPlannedPaymentDialog = true },
-                                        modifier = Modifier.align(Alignment.End)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Добавить план / операцию")
+                                        if (state.plannedTransactions.isNotEmpty()) {
+                                            TextButton(onClick = { showPlannedPaymentsSheet = true }) {
+                                                Icon(
+                                                    Icons.Outlined.CalendarMonth,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    "Ожидаемые (${state.plannedTransactions.size})",
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        } else {
+                                            Spacer(modifier = Modifier.width(1.dp))
+                                        }
+
+                                        TextButton(onClick = { showAddPlannedPaymentDialog = true }) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Добавить план")
+                                        }
                                     }
                                 }
                             }
@@ -794,7 +815,7 @@ fun ZenPlansMainView(
 
     // Sheet: Planned Operations [📅 count]
     if (showPlannedPaymentsSheet) {
-        ZenPlannedPaymentsDialog(
+        ZenPlannedPaymentsSheet(
             items = state.plannedTransactions,
             currency = state.baseCurrency,
             onDismiss = { showPlannedPaymentsSheet = false },
@@ -1579,7 +1600,327 @@ fun ZenPlansInfoModal(
 }
 
 /**
- * Dialog: List of Planned Payments & Incomes (opened by [📅 count])
+ * Bottom Sheet: List of Planned Payments & Incomes (opened by [📅 count])
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun ZenPlannedPaymentsSheet(
+    items: List<com.example.data.entity.PlannedTransactionEntity>,
+    currency: String,
+    onDismiss: () -> Unit,
+    onAddItem: () -> Unit,
+    onEditItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit,
+    onDeleteItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit,
+    onExecuteItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        modifier = Modifier.testTag("zen_planned_payments_dialog")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            // Header Row: Title, Counter Badge, Add button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Ожидаемые операции",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    )
+                    if (items.isNotEmpty()) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "${items.size}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onAddItem,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .size(38.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Добавить операцию",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            // Summary row if items exist
+            if (items.isNotEmpty()) {
+                val totalExpense = items.filter { it.type != "INCOME" }.sumOf { it.amount }
+                val totalIncome = items.filter { it.type == "INCOME" }.sumOf { it.amount }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (totalExpense > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = ExpenseRed.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = "Расход: -${CurrencyHelper.formatAmount(totalExpense, currency)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ExpenseRed,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    if (totalIncome > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = IncomeGreen.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = "Доход: +${CurrencyHelper.formatAmount(totalIncome, currency)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = IncomeGreen,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            if (items.isEmpty()) {
+                // Empty state
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 36.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Outlined.EventNote,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Пока нет запланированных операций",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Планируйте расходы и доходы для точного прогноза свободных денег",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = onAddItem,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Запланировать операцию")
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(items, key = { it.id }) { item ->
+                        val cal = Calendar.getInstance().apply { timeInMillis = item.plannedDate }
+                        val dayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
+                        val monthShort = SimpleDateFormat("MMM", Locale("ru")).format(cal.time)
+                            .replace(".", "")
+                            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("ru")) else it.toString() }
+                        val isIncome = item.type == "INCOME"
+                        val dateTimeFormatted = SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(cal.time)
+
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onEditItem(item) }
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                // Top row: Date badge, note + date/time, amount
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Calendar Date badge (Day + Month)
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isIncome) IncomeGreen.copy(alpha = 0.15f) else ExpenseRed.copy(alpha = 0.15f),
+                                        modifier = Modifier.size(46.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = "$dayOfMonth",
+                                                color = if (isIncome) IncomeGreen else ExpenseRed,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp,
+                                                lineHeight = 16.sp
+                                            )
+                                            Text(
+                                                text = monthShort,
+                                                color = if (isIncome) IncomeGreen else ExpenseRed,
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 11.sp,
+                                                lineHeight = 12.sp
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    // Note and Meta Details
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.note.ifBlank { if (isIncome) "Доход" else "Расход" },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 2,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${if (isIncome) "Доход" else "Расход"} • $dateTimeFormatted${if (item.reminderType != "NONE") " • 🔔" else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Amount
+                                    Text(
+                                        text = (if (isIncome) "+" else "-") + CurrencyHelper.formatAmount(item.amount, currency),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isIncome) IncomeGreen else ExpenseRed
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Bottom action row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Delete action
+                                    TextButton(
+                                        onClick = { onDeleteItem(item) },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Delete,
+                                            contentDescription = "Удалить",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Удалить", style = MaterialTheme.typography.labelMedium)
+                                    }
+
+                                    // Execute action
+                                    FilledTonalButton(
+                                        onClick = { onExecuteItem(item) },
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Исполнить",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "Исполнить",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Backward compatibility alias for ZenPlannedPaymentsSheet
  */
 @Composable
 fun ZenPlannedPaymentsDialog(
@@ -1590,121 +1931,15 @@ fun ZenPlannedPaymentsDialog(
     onEditItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit,
     onDeleteItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit,
     onExecuteItem: (com.example.data.entity.PlannedTransactionEntity) -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth().testTag("zen_planned_payments_dialog")
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Ожидаемые операции",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(
-                        onClick = onAddItem,
-                        modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer).size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Добавить",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (items.isEmpty()) {
-                    Text(
-                        text = "Пока нет запланированных платежей",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                } else {
-                    items.forEach { item ->
-                        val cal = Calendar.getInstance().apply { timeInMillis = item.plannedDate }
-                        val dayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
-                        val isIncome = item.type == "INCOME"
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onEditItem(item) }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Colored date dot
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isIncome) IncomeGreen.copy(alpha = 0.15f) else ExpenseRed.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "${dayOfMonth}",
-                                    color = if (isIncome) IncomeGreen else ExpenseRed,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.note,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                val dateTimeFormatted = SimpleDateFormat("d MMM, HH:mm", Locale("ru")).format(cal.time)
-                                Text(
-                                    text = "${if (isIncome) "Доход" else "Расход"} • $dateTimeFormatted${if (item.reminderType != "NONE") " • 🔔" else ""}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            Text(
-                                text = (if (isIncome) "+" else "-") + CurrencyHelper.formatAmount(item.amount, currency),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isIncome) IncomeGreen else MaterialTheme.colorScheme.onSurface
-                            )
-
-                            IconButton(onClick = { onExecuteItem(item) }) {
-                                Icon(Icons.Default.Check, contentDescription = "Исполнить", tint = MaterialTheme.colorScheme.primary)
-                            }
-                            IconButton(onClick = { onDeleteItem(item) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(start = 56.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Закрыть")
-                    }
-                }
-            }
-        }
-    }
-}
+) = ZenPlannedPaymentsSheet(
+    items = items,
+    currency = currency,
+    onDismiss = onDismiss,
+    onAddItem = onAddItem,
+    onEditItem = onEditItem,
+    onDeleteItem = onDeleteItem,
+    onExecuteItem = onExecuteItem
+)
 
 /**
  * Dialog to add or edit a planned payment or income with Calendar Date & Time picker
