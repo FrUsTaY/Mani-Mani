@@ -307,12 +307,19 @@ object BankNotificationParser {
         }
 
         // 2. Extract Amount
-        val amountRegex = Regex("""(?<!\w)(?:([0-9]{1,3}(?:[\s\u00A0][0-9]{3})*(?:[.,][0-9]{1,2})?)|([0-9]+(?:[.,][0-9]{1,2})?))\s*(₽|руб\.?|rub|р\.|\$|usd|€|eur|₸|kzt|byn|cny)?""", RegexOption.IGNORE_CASE)
+        // Support numbers with space thousand separator (requiring at least one group: 10 000) OR continuous digits (6800)
+        val amountRegex = Regex("""(?<!\w)(?:([0-9]{1,3}(?:[\s\u00A0][0-9]{3})+(?:[.,][0-9]{1,2})?)|([0-9]+(?:[.,][0-9]{1,2})?))\s*(₽|руб\.?|rub|р\.?|\$|usd|€|eur|₸|kzt|byn|cny)?""", RegexOption.IGNORE_CASE)
         val matches = amountRegex.findAll(raw).toList()
         if (matches.isEmpty()) return null
 
-        var matchedAmount: Double? = null
-        var detectedCurrency = "RUB"
+        data class CandidateMatch(
+            val amount: Double,
+            val currency: String,
+            val hasExplicitCurrency: Boolean,
+            val startIndex: Int
+        )
+
+        val candidateMatches = mutableListOf<CandidateMatch>()
 
         for (match in matches) {
             val numStr = (match.groups[1]?.value ?: match.groups[2]?.value)
@@ -323,12 +330,17 @@ object BankNotificationParser {
 
             val parsedNum = numStr?.toDoubleOrNull()
             if (parsedNum != null && parsedNum > 0) {
-                val beforeMatch = raw.substring(0, match.range.first).lowercase()
-                if (beforeMatch.endsWith("карта *") || beforeMatch.endsWith("карте *") || beforeMatch.endsWith("счет *")) {
+                val beforeMatch = raw.substring(0, match.range.first).lowercase().trim()
+                if (beforeMatch.endsWith("карта *") || beforeMatch.endsWith("карте *") ||
+                    beforeMatch.endsWith("счет *") || beforeMatch.endsWith("счёт *") ||
+                    beforeMatch.endsWith("карта*") || beforeMatch.endsWith("карте*") ||
+                    beforeMatch.endsWith("карта") || beforeMatch.endsWith("карте") ||
+                    beforeMatch.endsWith("доступно:") || beforeMatch.endsWith("доступно") ||
+                    beforeMatch.endsWith("баланс:") || beforeMatch.endsWith("баланс") ||
+                    beforeMatch.endsWith("остаток:") || beforeMatch.endsWith("остаток")) {
                     continue
                 }
-                matchedAmount = parsedNum
-                detectedCurrency = when {
+                val detectedCurrency = when {
                     currStr?.contains("$") == true || currStr?.contains("usd") == true -> "USD"
                     currStr?.contains("€") == true || currStr?.contains("eur") == true -> "EUR"
                     currStr?.contains("₸") == true || currStr?.contains("kzt") == true -> "KZT"
@@ -336,11 +348,23 @@ object BankNotificationParser {
                     currStr?.contains("cny") == true -> "CNY"
                     else -> "RUB"
                 }
-                break
+                candidateMatches.add(
+                    CandidateMatch(
+                        amount = parsedNum,
+                        currency = detectedCurrency,
+                        hasExplicitCurrency = !currStr.isNullOrBlank(),
+                        startIndex = match.range.first
+                    )
+                )
             }
         }
 
-        if (matchedAmount == null) return null
+        if (candidateMatches.isEmpty()) return null
+
+        // Prefer the first candidate with an explicit currency symbol (e.g. 6800р), otherwise take the first valid number
+        val chosen = candidateMatches.firstOrNull { it.hasExplicitCurrency } ?: candidateMatches.first()
+        val matchedAmount = chosen.amount
+        val detectedCurrency = chosen.currency
 
         // 3. Extract Card Last 4
         val cardRegex = Regex("""(?:\*|карта|карте|счет|счёт)\s*\*?([0-9]{4})\b""", RegexOption.IGNORE_CASE)

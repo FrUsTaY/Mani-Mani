@@ -175,4 +175,27 @@ class BankNotificationParserTest {
         val cleaned = BankNotificationParser.cleanNote(merchant, rawText)
         assertEquals("Самбери", cleaned)
     }
+
+    @Test
+    fun testParseBankFourDigitAmountWithoutSpaces() {
+        // Test case from real VTB push: 6800р must not be truncated to 680
+        val text = "Оплата 6800р Карта*2305 APTECHNOE. Доступно: 12 053,77 ₽"
+        val result = BankNotificationParser.parse(
+            text = text,
+            title = "ВТБ Онлайн",
+            packageName = "ru.vtb24.mobilebanking.android"
+        )
+        assertNotNull(result)
+        assertEquals(6800.0, result?.amount ?: 0.0, 0.001)
+        assertEquals("RUB", result?.currency)
+        assertEquals("2305", result?.cardLast4)
+        assertEquals("EXPENSE", result?.type)
+
+        // Other continuous 4-digit patterns
+        val res1500 = BankNotificationParser.parse("Покупка 1500р Магнит", packageName = "ru.sberbankmobile")
+        assertEquals(1500.0, res1500?.amount ?: 0.0, 0.001)
+
+        val res50000 = BankNotificationParser.parse("Списание 50000 руб.", packageName = "com.idamob.tinkoff.android")
+        assertEquals(50000.0, res50000?.amount ?: 0.0, 0.001)
+    }
 }

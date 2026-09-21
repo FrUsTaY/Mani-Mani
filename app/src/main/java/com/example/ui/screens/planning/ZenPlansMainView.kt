@@ -1172,7 +1172,7 @@ fun ZenDetailedForecastChart(
                             )
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                            Text("Свободно: ${CurrencyHelper.formatAmount(tooltipMoney, currency)}", style = MaterialTheme.typography.labelSmall, color = forecastGreen, fontWeight = FontWeight.Bold)
+                            Text("Деньги: ${CurrencyHelper.formatAmount(tooltipMoney, currency)}", style = MaterialTheme.typography.labelSmall, color = forecastGreen, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text("Расходы: ${CurrencyHelper.formatAmount(tooltipSpend, currency)}", style = MaterialTheme.typography.labelSmall, color = if (!tooltipIsFuture) charcoalColor else planBlue, fontWeight = FontWeight.Bold)
                         }
