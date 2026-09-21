@@ -179,6 +179,7 @@ fun ManiManiApp(
                     onToggleEveningSummary = { viewModel.setEveningSummaryEnabled(it) },
                     eveningSummaryTime = eveningSummaryTime,
                     onSetEveningSummaryTime = { viewModel.setEveningSummaryTime(it) },
+                    onSendTestEveningSummary = { viewModel.sendTestEveningSummary() },
                     onToggleBankIntercept = { viewModel.setBankPushInterceptEnabled(it) },
                     onToggleZenmoneyIntercept = { viewModel.setZenmoneyPushInterceptEnabled(it) }
                 )

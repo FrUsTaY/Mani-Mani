@@ -29,6 +29,7 @@ fun NotificationSettingsScreen(
     onToggleEveningSummary: (Boolean) -> Unit,
     eveningSummaryTime: String,
     onSetEveningSummaryTime: (String) -> Unit,
+    onSendTestEveningSummary: () -> Unit = {},
     onToggleBankIntercept: (Boolean) -> Unit,
     onToggleZenmoneyIntercept: (Boolean) -> Unit
 ) {
@@ -134,6 +135,17 @@ fun NotificationSettingsScreen(
                                 Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Настроить время ($eveningSummaryTime)", fontSize = 13.sp)
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = onSendTestEveningSummary,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Отправить тестовую сводку", fontSize = 13.sp)
                             }
                         }
                     }
@@ -301,6 +313,32 @@ fun NotificationSettingsScreen(
                     Icon(Icons.Default.Sync, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Служба перехвата банков (Android)", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val context = androidx.compose.ui.platform.LocalContext.current
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val intent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                    putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                }
+                            } else {
+                                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.fromParts("package", context.packageName, null)
+                                }
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Notifications, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Категории уведомлений в Android", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

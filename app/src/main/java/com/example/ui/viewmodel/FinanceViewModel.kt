@@ -482,6 +482,11 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _statusMessage.value = "Тестовое пуш-уведомление отправлено"
     }
 
+    fun sendTestEveningSummary() {
+        PushNotificationHelper.sendTestEveningSummary(getApplication())
+        _statusMessage.value = "Тестовая вечерняя сводка отправлена"
+    }
+
     fun addAccount(
         name: String,
         type: String,

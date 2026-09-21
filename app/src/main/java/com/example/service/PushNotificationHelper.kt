@@ -289,4 +289,38 @@ object PushNotificationHelper {
             // Android 13+ permission not yet granted
         }
     }
+
+    fun sendTestEveningSummary(context: Context, customText: String? = null) {
+        createNotificationChannel(context)
+
+        val text = customText ?: "Расходы за сегодня: 1 450 ₽. У вас 2 неразобранных операций, давайте запишем их!"
+
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            2002,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, EVENING_SUMMARY_CHANNEL_ID)
+            .setSmallIcon(com.example.R.drawable.ic_notification_mono)
+            .setContentTitle("🌙 Вечерняя сводка")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        try {
+            val notificationManager = NotificationManagerCompat.from(context)
+            notificationManager.notify(2002, builder.build())
+        } catch (_: SecurityException) {
+            // Android 13+ permission not yet granted
+        }
+    }
 }
