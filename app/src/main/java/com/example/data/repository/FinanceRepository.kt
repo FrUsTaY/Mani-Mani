@@ -4,6 +4,7 @@ import com.example.data.database.AppDatabase
 import com.example.data.entity.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 
 class FinanceRepository(private val db: AppDatabase) {
     private val accountDao = db.accountDao()
@@ -14,6 +15,7 @@ class FinanceRepository(private val db: AppDatabase) {
     private val debtDao = db.debtDao()
     private val pendingNotificationDao = db.pendingNotificationDao()
     private val plannedTransactionDao = db.plannedTransactionDao()
+    private val aiMessageDao = db.aiMessageDao()
 
     // Pending Bank Notifications
     val unprocessedNotifications: Flow<List<PendingNotificationEntity>> = pendingNotificationDao.getUnprocessedNotifications()
@@ -51,6 +53,22 @@ class FinanceRepository(private val db: AppDatabase) {
     // Transactions
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
     fun getRecentTransactions(limit: Int = 20): Flow<List<TransactionEntity>> = transactionDao.getRecentTransactions(limit)
+
+    fun getPeriodSummary(startTime: Long?, endTime: Long?): Flow<com.example.data.dao.PeriodSummaryResult> {
+        return if (startTime != null && endTime != null) {
+            transactionDao.getPeriodSummary(startTime, endTime)
+        } else {
+            transactionDao.getAllTimeSummary()
+        }
+    }
+
+    fun getHistoryTransactions(startTime: Long?, endTime: Long?, limit: Int): Flow<List<TransactionEntity>> {
+        return if (startTime != null && endTime != null) {
+            transactionDao.getTransactionsBetweenPaged(startTime, endTime, limit)
+        } else {
+            transactionDao.getAllTransactionsPaged(limit)
+        }
+    }
 
     suspend fun addTransaction(transaction: TransactionEntity): Long {
         val id = transactionDao.insertTransaction(transaction)
@@ -234,6 +252,7 @@ class FinanceRepository(private val db: AppDatabase) {
         transactionDao.deleteAllTransactions()
         debtDao.deleteAllDebts()
         pendingNotificationDao.deleteAllNotifications()
+        aiMessageDao.deleteAllMessages()
         
         // Reset goal current progress
         val goals = allGoals.firstOrNull() ?: emptyList()
@@ -257,4 +276,39 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun insertPlannedTransaction(transaction: PlannedTransactionEntity): Long = plannedTransactionDao.insertPlannedTransaction(transaction)
     suspend fun updatePlannedTransaction(transaction: PlannedTransactionEntity) = plannedTransactionDao.updatePlannedTransaction(transaction)
     suspend fun deletePlannedTransaction(transaction: PlannedTransactionEntity) = plannedTransactionDao.deletePlannedTransaction(transaction)
+
+    // AI Chat Messages
+    val allAiMessages: Flow<List<com.example.service.gemini.AiMessage>> = aiMessageDao.getAllMessages().map { entities ->
+        entities.map { entity ->
+            com.example.service.gemini.AiMessage(
+                id = entity.id,
+                sender = if (entity.sender == "USER") com.example.service.gemini.MessageSender.USER else com.example.service.gemini.MessageSender.ASSISTANT,
+                text = entity.text,
+                timestamp = entity.timestamp,
+                promptType = entity.promptType?.let {
+                    try {
+                        com.example.service.gemini.AiPromptType.valueOf(it)
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            )
+        }
+    }
+
+    suspend fun saveAiMessage(message: com.example.service.gemini.AiMessage) {
+        aiMessageDao.insertMessage(
+            AiMessageEntity(
+                id = message.id,
+                sender = message.sender.name,
+                text = message.text,
+                timestamp = message.timestamp,
+                promptType = message.promptType?.name
+            )
+        )
+    }
+
+    suspend fun clearAiMessages() {
+        aiMessageDao.deleteAllMessages()
+    }
 }

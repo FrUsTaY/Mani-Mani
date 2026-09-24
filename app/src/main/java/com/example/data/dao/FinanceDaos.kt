@@ -104,7 +104,35 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     suspend fun deleteAllTransactions()
+
+    @Query("""
+        SELECT 
+            COUNT(*) AS totalCount,
+            COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0.0 END), 0.0) AS totalExpense
+        FROM transactions
+        WHERE timestamp >= :startTime AND timestamp <= :endTime
+    """)
+    fun getPeriodSummary(startTime: Long, endTime: Long): Flow<PeriodSummaryResult>
+
+    @Query("""
+        SELECT 
+            COUNT(*) AS totalCount,
+            COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0.0 END), 0.0) AS totalExpense
+        FROM transactions
+    """)
+    fun getAllTimeSummary(): Flow<PeriodSummaryResult>
+
+    @Query("SELECT * FROM transactions WHERE timestamp >= :startTime AND timestamp <= :endTime ORDER BY timestamp DESC LIMIT :limit")
+    fun getTransactionsBetweenPaged(startTime: Long, endTime: Long, limit: Int): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT :limit")
+    fun getAllTransactionsPaged(limit: Int): Flow<List<TransactionEntity>>
 }
+
+data class PeriodSummaryResult(
+    val totalCount: Int,
+    val totalExpense: Double
+)
 
 @Dao
 interface BudgetDao {
@@ -194,4 +222,22 @@ interface PlannedTransactionDao {
 
     @Query("DELETE FROM planned_transactions")
     suspend fun deleteAllPlannedTransactions()
+}
+
+@Dao
+interface AiMessageDao {
+    @Query("SELECT * FROM ai_messages ORDER BY timestamp ASC")
+    fun getAllMessages(): Flow<List<AiMessageEntity>>
+
+    @Query("SELECT * FROM ai_messages ORDER BY timestamp ASC")
+    suspend fun getAllMessagesSync(): List<AiMessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: AiMessageEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessages(messages: List<AiMessageEntity>)
+
+    @Query("DELETE FROM ai_messages")
+    suspend fun deleteAllMessages()
 }

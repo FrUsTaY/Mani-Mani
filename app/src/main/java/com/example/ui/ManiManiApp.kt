@@ -53,6 +53,10 @@ fun ManiManiApp(
     viewModel: FinanceViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val historyTransactions by viewModel.historyTransactions.collectAsStateWithLifecycle()
+    val historySummary by viewModel.historySummary.collectAsStateWithLifecycle()
+    val historyPeriodType by viewModel.historyPeriodType.collectAsStateWithLifecycle()
+    val historyCustomRange by viewModel.historyCustomRange.collectAsStateWithLifecycle()
     var currentTab by remember { mutableStateOf(ManiManiNavTab.HOME) }
 
     var showAddTransactionDialog by remember { mutableStateOf(false) }
@@ -260,6 +264,13 @@ fun ManiManiApp(
 
                     ManiManiNavTab.HISTORY -> TransactionsScreen(
                         state = state,
+                        historyTransactions = historyTransactions,
+                        historySummary = historySummary,
+                        selectedPeriod = historyPeriodType,
+                        customRange = historyCustomRange,
+                        onPeriodSelected = { viewModel.setHistoryPeriodType(it) },
+                        onCustomRangeSelected = { start, end -> viewModel.setHistoryCustomRange(start, end) },
+                        onLoadMore = { viewModel.loadMoreHistoryTransactions() },
                         onDeleteTransaction = { viewModel.deleteTransaction(it) },
                         onEditTransaction = { transactionToEdit = it }
                     )

@@ -94,3 +94,13 @@ data class PlannedTransactionEntity(
     val note: String = "",
     val reminderType: String = "NONE"
 )
+
+@Entity(tableName = "ai_messages")
+@JsonClass(generateAdapter = true)
+data class AiMessageEntity(
+    @PrimaryKey val id: String,
+    val sender: String, // "USER" or "ASSISTANT"
+    val text: String,
+    val timestamp: Long,
+    val promptType: String? = null
+)

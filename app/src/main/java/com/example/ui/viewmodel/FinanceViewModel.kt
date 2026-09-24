@@ -203,6 +203,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         if (_isEveningSummaryEnabled.value) {
             com.example.service.EveningSummaryScheduler.schedule(getApplication(), _eveningSummaryTime.value, forceUpdate = false)
         }
+
+        // Restore saved Gemini chat history
+        viewModelScope.launch {
+            repository.allAiMessages.collect { messages ->
+                _aiMessages.value = messages
+            }
+        }
     }
 
     private val baseFinanceFlow = combine10(
@@ -375,6 +382,94 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = FinanceUiState(isLoading = true)
     )
+
+    private val _historyPeriodType = MutableStateFlow(
+        com.example.ui.screens.transactions.HistoryPeriodType.fromString(userFinancePrefs.getHistoryPeriodType())
+    )
+    val historyPeriodType: StateFlow<com.example.ui.screens.transactions.HistoryPeriodType> = _historyPeriodType.asStateFlow()
+
+    private val _historyCustomRange = MutableStateFlow(userFinancePrefs.getHistoryCustomRange())
+    val historyCustomRange: StateFlow<Pair<Long, Long>> = _historyCustomRange.asStateFlow()
+
+    private val _historyLimit = MutableStateFlow(50)
+    val historyLimit: StateFlow<Int> = _historyLimit.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val historySummary: StateFlow<com.example.data.dao.PeriodSummaryResult> = combine(
+        _historyPeriodType,
+        _historyCustomRange
+    ) { type, customRange ->
+        when (type) {
+            com.example.ui.screens.transactions.HistoryPeriodType.WEEK -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.getWeekRange()
+                Pair(start as Long?, end as Long?)
+            }
+            com.example.ui.screens.transactions.HistoryPeriodType.MONTH -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.getMonthRange()
+                Pair(start as Long?, end as Long?)
+            }
+            com.example.ui.screens.transactions.HistoryPeriodType.ALL_TIME -> Pair(null, null)
+            com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.normalizeCustomRange(customRange.first, customRange.second)
+                Pair(start as Long?, end as Long?)
+            }
+        }
+    }.flatMapLatest { (start, end) ->
+        repository.getPeriodSummary(start, end)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = com.example.data.dao.PeriodSummaryResult(0, 0.0)
+    )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val historyTransactions: StateFlow<List<TransactionEntity>> = combine(
+        _historyPeriodType,
+        _historyCustomRange,
+        _historyLimit
+    ) { type, customRange, limit ->
+        val bounds = when (type) {
+            com.example.ui.screens.transactions.HistoryPeriodType.WEEK -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.getWeekRange()
+                Pair(start as Long?, end as Long?)
+            }
+            com.example.ui.screens.transactions.HistoryPeriodType.MONTH -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.getMonthRange()
+                Pair(start as Long?, end as Long?)
+            }
+            com.example.ui.screens.transactions.HistoryPeriodType.ALL_TIME -> Pair(null, null)
+            com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM -> {
+                val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.normalizeCustomRange(customRange.first, customRange.second)
+                Pair(start as Long?, end as Long?)
+            }
+        }
+        Triple(bounds.first, bounds.second, limit)
+    }.flatMapLatest { (start, end, limit) ->
+        repository.getHistoryTransactions(start, end, limit)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    fun setHistoryPeriodType(type: com.example.ui.screens.transactions.HistoryPeriodType) {
+        _historyPeriodType.value = type
+        userFinancePrefs.setHistoryPeriodType(type.name)
+        _historyLimit.value = 50
+    }
+
+    fun setHistoryCustomRange(startTime: Long, endTime: Long) {
+        val normalized = com.example.ui.screens.transactions.HistoryPeriodHelper.normalizeCustomRange(startTime, endTime)
+        _historyCustomRange.value = normalized
+        userFinancePrefs.setHistoryCustomRange(normalized.first, normalized.second)
+        _historyPeriodType.value = com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM
+        userFinancePrefs.setHistoryPeriodType(com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM.name)
+        _historyLimit.value = 50
+    }
+
+    fun loadMoreHistoryTransactions() {
+        _historyLimit.update { it + 50 }
+    }
 
     fun setThemeMode(mode: AppThemeMode) {
         userFinancePrefs.setThemeMode(mode)
@@ -859,6 +954,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun clearAiChat() {
         _aiMessages.value = emptyList()
         _aiState.value = AiState.Idle
+        viewModelScope.launch {
+            repository.clearAiMessages()
+        }
     }
 
     fun updateAiInputText(text: String) {
@@ -1025,6 +1123,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _aiState.value = AiState.Loading
 
         viewModelScope.launch {
+            repository.saveAiMessage(userMessage)
+
             val result = geminiService.askAssistant(
                 promptType = promptType,
                 userQuestion = userQuestion,
@@ -1053,6 +1153,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     promptType = promptType
                 )
                 _aiMessages.value = _aiMessages.value + assistantMessage
+                repository.saveAiMessage(assistantMessage)
                 _aiState.value = AiState.Success(answer)
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"

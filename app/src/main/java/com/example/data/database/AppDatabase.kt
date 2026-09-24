@@ -20,9 +20,10 @@ import kotlinx.coroutines.launch
         GoalEntity::class,
         DebtEntity::class,
         PendingNotificationEntity::class,
-        PlannedTransactionEntity::class
+        PlannedTransactionEntity::class,
+        AiMessageEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun debtDao(): DebtDao
     abstract fun pendingNotificationDao(): PendingNotificationDao
     abstract fun plannedTransactionDao(): PlannedTransactionDao
+    abstract fun aiMessageDao(): AiMessageDao
 
     companion object {
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
@@ -54,6 +56,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ai_messages` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`sender` TEXT NOT NULL, " +
+                        "`text` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "`promptType` TEXT, " +
+                        "PRIMARY KEY(`id`)" +
+                    ")"
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -64,7 +81,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "manimani_database"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()

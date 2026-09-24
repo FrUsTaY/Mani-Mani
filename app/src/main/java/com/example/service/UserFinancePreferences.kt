@@ -38,6 +38,9 @@ class UserFinancePreferences(context: Context) {
         private const val KEY_BANK_PUSH_INTERCEPT_ENABLED = "bank_push_intercept_enabled"
         private const val KEY_ZENMONEY_PUSH_INTERCEPT_ENABLED = "zenmoney_push_intercept_enabled"
         private const val KEY_SPAM_FILTER_KEYWORDS = "spam_filter_keywords"
+        private const val KEY_HISTORY_PERIOD_TYPE = "history_period_type"
+        private const val KEY_HISTORY_CUSTOM_START = "history_custom_start"
+        private const val KEY_HISTORY_CUSTOM_END = "history_custom_end"
 
         const val BANK_VTB = "VTB"
         const val BANK_YANDEX = "YANDEX"
@@ -220,5 +223,28 @@ class UserFinancePreferences(context: Context) {
             dayOfCycle = dayOfCycle,
             totalDaysInCycle = totalDays
         )
+    }
+
+    fun getHistoryPeriodType(): String {
+        return prefs.getString(KEY_HISTORY_PERIOD_TYPE, "WEEK") ?: "WEEK"
+    }
+
+    fun setHistoryPeriodType(type: String) {
+        prefs.edit().putString(KEY_HISTORY_PERIOD_TYPE, type).apply()
+    }
+
+    fun getHistoryCustomRange(): Pair<Long, Long> {
+        val now = System.currentTimeMillis()
+        val defaultStart = now - 30L * 86_400_000L
+        val start = prefs.getLong(KEY_HISTORY_CUSTOM_START, defaultStart)
+        val end = prefs.getLong(KEY_HISTORY_CUSTOM_END, now)
+        return Pair(start, end)
+    }
+
+    fun setHistoryCustomRange(startTime: Long, endTime: Long) {
+        prefs.edit()
+            .putLong(KEY_HISTORY_CUSTOM_START, startTime)
+            .putLong(KEY_HISTORY_CUSTOM_END, endTime)
+            .apply()
     }
 }
