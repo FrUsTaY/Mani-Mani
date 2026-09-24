@@ -338,6 +338,8 @@ fun ManiManiApp(
                         onSaveGeminiApiKey = { viewModel.saveGeminiApiKey(it) },
                         onTestGeminiApiKey = { key, callback -> viewModel.testGeminiApiKey(key, callback) },
                         onClearGeminiApiKey = { viewModel.clearGeminiApiKey() },
+                        onSaveReceiptApiKey = { viewModel.saveReceiptApiKey(it) },
+                        onClearReceiptApiKey = { viewModel.clearReceiptApiKey() },
                         onOpenPaydaySettings = { showPaydaySettingsDialog = true },
                         onOpenMe2MeTransfer = { showMe2MeTransferDialog = true },
                         onOpenIncomeDistribution = { showIncomeDistributionDialog = true },
@@ -379,6 +381,11 @@ fun ManiManiApp(
 
     // Edit Transaction Dialog
     transactionToEdit?.let { txToEdit ->
+        val receiptWithItems by viewModel.getReceiptForTransaction(txToEdit.id)
+            .collectAsStateWithLifecycle(initialValue = null)
+        val isReceiptQrLoading by viewModel.receiptQrLoading.collectAsStateWithLifecycle()
+        val receiptQrError by viewModel.receiptQrError.collectAsStateWithLifecycle()
+
         AddTransactionDialog(
             accounts = state.accounts,
             categories = state.categories,
@@ -386,7 +393,20 @@ fun ManiManiApp(
             debts = state.debts,
             bankOfTheMonth = state.bankOfTheMonth,
             transactionToEdit = txToEdit,
-            onDismiss = { transactionToEdit = null },
+            receiptWithItems = receiptWithItems,
+            fileManager = viewModel.receiptFileManager,
+            preferenceManager = viewModel.receiptPreferenceManager,
+            onAttachReceiptPhoto = { path -> viewModel.attachReceiptPhoto(txToEdit.id, path) },
+            onDeleteReceiptPhoto = { viewModel.deleteReceiptPhoto(txToEdit.id) },
+            onDeleteReceiptQrData = { viewModel.deleteReceiptQrData(txToEdit.id) },
+            onProcessQrScanned = { qrRaw -> viewModel.fetchAndAttachReceiptQr(txToEdit.id, qrRaw) },
+            isReceiptQrLoading = isReceiptQrLoading,
+            receiptQrErrorMessage = receiptQrError,
+            onClearReceiptQrError = { viewModel.clearReceiptQrError() },
+            onDismiss = {
+                viewModel.clearReceiptQrError()
+                transactionToEdit = null
+            },
             onManageCategories = { showManageCategoriesDialog = true },
             onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId ->
                 val updated = txToEdit.copy(

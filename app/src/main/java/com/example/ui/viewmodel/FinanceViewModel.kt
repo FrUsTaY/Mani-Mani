@@ -69,7 +69,10 @@ data class FinanceUiState(
     val isZenmoneyPushInterceptEnabled: Boolean = false,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val isFirstLaunch: Boolean = false,
-    val spamKeywords: Set<String> = emptySet()
+    val spamKeywords: Set<String> = emptySet(),
+    val isReceiptApiKeyConfigured: Boolean = false,
+    val receiptApiKey: String = "",
+    val receiptApiKeyMasked: String = ""
 )
 
 @Suppress("UNCHECKED_CAST")
@@ -127,11 +130,16 @@ data class AppConfig(
 
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
     val backupRepository: BackupRepository
-
     private val repository: FinanceRepository
+
     val geminiPrefs = GeminiPreferenceManager(application)
     val geminiService = GeminiService(geminiPrefs)
     val userFinancePrefs = UserFinancePreferences(application)
+    val receiptPreferenceManager = com.example.service.receipt.ReceiptPreferenceManager(application)
+    val receiptFileManager = com.example.service.receipt.ReceiptFileManager(application)
+
+    private val _receiptApiKey = MutableStateFlow(receiptPreferenceManager.getApiKey())
+    val receiptApiKey: StateFlow<String> = _receiptApiKey.asStateFlow()
 
     private val _baseCurrency = MutableStateFlow("RUB")
     val baseCurrency: StateFlow<String> = _baseCurrency.asStateFlow()
@@ -197,7 +205,20 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     init {
         val database = AppDatabase.getDatabase(application, viewModelScope)
         repository = FinanceRepository(database)
-        backupRepository = BackupRepository(application, database, database.accountDao(), database.categoryDao(), database.transactionDao(), database.budgetDao(), database.goalDao(), database.debtDao(), database.plannedTransactionDao(), userFinancePrefs)
+        backupRepository = BackupRepository(
+            application,
+            database,
+            database.accountDao(),
+            database.categoryDao(),
+            database.transactionDao(),
+            database.budgetDao(),
+            database.goalDao(),
+            database.debtDao(),
+            database.plannedTransactionDao(),
+            userFinancePrefs,
+            database.receiptDao(),
+            receiptFileManager
+        )
         
         // Restore evening summary schedule if enabled
         if (_isEveningSummaryEnabled.value) {
@@ -359,7 +380,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _isAiConfigured,
         _userApiKey,
         _isFirstLaunch,
-        _aiInputText
+        _aiInputText,
+        _receiptApiKey
     ) { params ->
         val baseState = params[0] as FinanceUiState
         val messages = params[1] as List<AiMessage>
@@ -368,6 +390,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         val userKey = params[4] as String
         val isFirstLaunch = params[5] as Boolean
         val aiInputText = params[6] as String
+        val receiptKey = params[7] as String
         baseState.copy(
             aiMessages = messages,
             aiState = aiState,
@@ -375,7 +398,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             userGeminiApiKey = userKey,
             geminiApiKeyMasked = geminiPrefs.getMaskedApiKey(),
             isFirstLaunch = isFirstLaunch,
-            aiInputText = aiInputText
+            aiInputText = aiInputText,
+            isReceiptApiKeyConfigured = receiptKey.isNotBlank(),
+            receiptApiKey = receiptKey,
+            receiptApiKeyMasked = receiptPreferenceManager.getMaskedApiKey()
         )
     }.stateIn(
         scope = viewModelScope,
@@ -527,6 +553,91 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.updateTransaction(oldTransaction, newTransaction)
             _statusMessage.value = "Операция успешно обновлена"
+        }
+    }
+
+
+    val receiptQrService: com.example.service.receipt.ReceiptQrService by lazy {
+        com.example.service.receipt.ReceiptQrService(repository)
+    }
+
+    fun saveReceiptApiKey(apiKey: String) {
+        receiptPreferenceManager.saveApiKey(apiKey)
+        _receiptApiKey.value = receiptPreferenceManager.getApiKey()
+        _statusMessage.value = "Ключ «Проверка чека» сохранён"
+    }
+
+    fun clearReceiptApiKey() {
+        receiptPreferenceManager.clearApiKey()
+        _receiptApiKey.value = ""
+        _statusMessage.value = "Ключ «Проверка чека» удалён"
+    }
+
+    private val _receiptQrLoading = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val receiptQrLoading: kotlinx.coroutines.flow.StateFlow<Boolean> = _receiptQrLoading.asStateFlow()
+
+    private val _receiptQrError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val receiptQrError: kotlinx.coroutines.flow.StateFlow<String?> = _receiptQrError.asStateFlow()
+
+    fun clearReceiptQrError() {
+        _receiptQrError.value = null
+    }
+
+    fun getReceiptForTransaction(transactionId: Long): kotlinx.coroutines.flow.Flow<com.example.data.entity.ReceiptWithItems?> {
+        return repository.getReceiptByTransactionId(transactionId)
+    }
+
+    fun attachReceiptPhoto(transactionId: Long, photoPath: String) {
+        viewModelScope.launch {
+            val existing = repository.getReceiptEntityByTransactionId(transactionId)
+            if (existing != null) {
+                repository.updateReceipt(existing.copy(imagePath = photoPath))
+            } else {
+                repository.insertReceipt(
+                    com.example.data.entity.ReceiptEntity(
+                        transactionId = transactionId,
+                        imagePath = photoPath
+                    )
+                )
+            }
+            _statusMessage.value = "Фото чека сохранено"
+        }
+    }
+
+    fun deleteReceiptPhoto(transactionId: Long) {
+        viewModelScope.launch {
+            repository.deleteReceiptPhoto(transactionId)
+            _statusMessage.value = "Фото чека удалено"
+        }
+    }
+
+    fun fetchAndAttachReceiptQr(
+        transactionId: Long,
+        qrRaw: String,
+        onResult: ((Boolean, String?) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            _receiptQrLoading.value = true
+            _receiptQrError.value = null
+            val apiKey = receiptPreferenceManager.getApiKey()
+            val result = receiptQrService.processAndSaveReceiptQr(transactionId, qrRaw, apiKey)
+            _receiptQrLoading.value = false
+            result.onSuccess {
+                _statusMessage.value = "Данные чека успешно получены из ФНС"
+                onResult?.invoke(true, null)
+            }.onFailure { err ->
+                val msg = err.message ?: "Ошибка получения данных чека"
+                _receiptQrError.value = msg
+                _statusMessage.value = msg
+                onResult?.invoke(false, msg)
+            }
+        }
+    }
+
+    fun deleteReceiptQrData(transactionId: Long) {
+        viewModelScope.launch {
+            repository.deleteReceiptQrData(transactionId)
+            _statusMessage.value = "Данные QR-чека удалены"
         }
     }
 

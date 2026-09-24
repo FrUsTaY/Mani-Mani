@@ -12,7 +12,16 @@ data class BackupData(
     val goals: List<GoalEntity>,
     val debts: List<DebtEntity>,
     val plannedTransactions: List<PlannedTransactionEntity>,
-    val preferences: BackupPreferences
+    val preferences: BackupPreferences,
+    val receipts: List<ReceiptEntity> = emptyList(),
+    val receiptItems: List<ReceiptItemEntity> = emptyList(),
+    val receiptPhotos: List<BackupReceiptPhoto> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class BackupReceiptPhoto(
+    val fileName: String,
+    val base64Data: String
 )
 
 @JsonClass(generateAdapter = true)

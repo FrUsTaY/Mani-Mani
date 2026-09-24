@@ -30,6 +30,7 @@ import com.example.service.AppThemeMode
 import com.example.service.UserFinancePreferences
 import com.example.ui.components.BankOfTheMonthCard
 import com.example.ui.screens.GeminiApiKeyDialog
+import com.example.ui.screens.receipt.ReceiptApiKeyDialog
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.TransferBlue
 import com.example.ui.util.CurrencyHelper
@@ -56,6 +57,8 @@ fun AccountsSettingsScreen(
     onSaveGeminiApiKey: (String) -> Unit,
     onTestGeminiApiKey: (String, (Boolean, String) -> Unit) -> Unit,
     onClearGeminiApiKey: () -> Unit,
+    onSaveReceiptApiKey: (String) -> Unit = { viewModel.saveReceiptApiKey(it) },
+    onClearReceiptApiKey: () -> Unit = { viewModel.clearReceiptApiKey() },
     onOpenPaydaySettings: () -> Unit = {},
     onOpenMe2MeTransfer: () -> Unit = {},
     onOpenIncomeDistribution: () -> Unit = {},
@@ -70,6 +73,8 @@ fun AccountsSettingsScreen(
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var keepAccountsZeroBalance by remember { mutableStateOf(true) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showReceiptApiKeyDialog by remember { mutableStateOf(false) }
+    var showDeleteReceiptKeyConfirmDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier
@@ -560,6 +565,124 @@ fun AccountsSettingsScreen(
                 }
             }
 
+            // 4.1. Receipt & FNS Check API Section (Section 12 & 34 ТЗ)
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("receipt_settings_card")
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.QrCodeScanner,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Чеки и ФНС",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (state.isReceiptApiKeyConfigured) "API «Проверка чека» подключен" else "API-ключ не настроен",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (state.isReceiptApiKeyConfigured) androidx.compose.ui.graphics.Color(0xFF10B981) else MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+
+                            if (state.isReceiptApiKeyConfigured) {
+                                Surface(
+                                    color = androidx.compose.ui.graphics.Color(0xFFD1FAE5),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "АКТИВЕН",
+                                        color = androidx.compose.ui.graphics.Color(0xFF065F46),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "Сервис proverkacheka.com позволяет сканировать QR-коды чеков и автоматически загружать реквизиты, состав покупок и цены из базы ФНС.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (state.isReceiptApiKeyConfigured && state.receiptApiKeyMasked.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Ключ: ${state.receiptApiKeyMasked}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { showReceiptApiKeyDialog = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                                    .testTag("edit_receipt_api_key_button"),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    if (state.isReceiptApiKeyConfigured) "Изменить ключ" else "Указать API-ключ",
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            if (state.isReceiptApiKeyConfigured) {
+                                OutlinedButton(
+                                    onClick = { showDeleteReceiptKeyConfirmDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    modifier = Modifier
+                                        .height(42.dp)
+                                        .testTag("delete_receipt_api_key_button"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Удалить ключ", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // 5. Data Management (Export & Reset)
             item {
                 Text(
@@ -609,13 +732,13 @@ fun AccountsSettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "«Мани-мани» • Версия 1.0",
+                        text = "Мани-мани",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Умный нативный учёт личных финансов",
+                        text = "умный нативный учёт личных финансов",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -893,5 +1016,44 @@ fun AccountsSettingsScreen(
             onTest = onTestGeminiApiKey
         )
     }
+
+    if (showReceiptApiKeyDialog) {
+        ReceiptApiKeyDialog(
+            initialKey = state.receiptApiKey,
+            onSaveKey = { key ->
+                onSaveReceiptApiKey(key)
+                showReceiptApiKeyDialog = false
+                Toast.makeText(context, "API-ключ «Проверка чека» сохранён", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showReceiptApiKeyDialog = false }
+        )
+    }
+
+    if (showDeleteReceiptKeyConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteReceiptKeyConfirmDialog = false },
+            title = { Text("Удалить API-ключ «Проверка чека»?") },
+            text = { Text("Ключ будет удалён из приложения. Вы сможете указать его заново в любое время.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearReceiptApiKey()
+                        showDeleteReceiptKeyConfirmDialog = false
+                        Toast.makeText(context, "API-ключ «Проверка чека» удалён", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_delete_receipt_key_button")
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteReceiptKeyConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
 }
+
 

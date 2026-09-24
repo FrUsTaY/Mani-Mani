@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,6 +38,9 @@ import com.example.data.entity.CategoryEntity
 import com.example.data.entity.TransactionEntity
 import com.example.data.entity.GoalEntity
 import com.example.data.entity.DebtEntity
+import com.example.data.entity.ReceiptWithItems
+import com.example.service.receipt.ReceiptFileManager
+import com.example.ui.screens.receipt.ReceiptTabContent
 import com.example.service.UserBankHelper
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
@@ -53,6 +57,16 @@ fun AddTransactionDialog(
     debts: List<DebtEntity> = emptyList(),
     bankOfTheMonth: String = "VTB",
     transactionToEdit: TransactionEntity? = null,
+    receiptWithItems: ReceiptWithItems? = null,
+    fileManager: ReceiptFileManager? = null,
+    preferenceManager: com.example.service.receipt.ReceiptPreferenceManager? = null,
+    onAttachReceiptPhoto: ((photoPath: String) -> Unit)? = null,
+    onDeleteReceiptPhoto: (() -> Unit)? = null,
+    onDeleteReceiptQrData: (() -> Unit)? = null,
+    onProcessQrScanned: ((qrRaw: String) -> Unit)? = null,
+    isReceiptQrLoading: Boolean = false,
+    receiptQrErrorMessage: String? = null,
+    onClearReceiptQrError: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onManageCategories: () -> Unit = {},
     onConfirm: (
@@ -71,7 +85,7 @@ fun AddTransactionDialog(
     val activeAccounts = remember(accounts) { accounts.filter { !it.isArchived } }
     var selectedType by remember {
         mutableStateOf(transactionToEdit?.type ?: "EXPENSE")
-    } // EXPENSE, INCOME, TRANSFER
+    } // EXPENSE, INCOME, TRANSFER, RECEIPT
 
     var amountText by remember {
         mutableStateOf(
@@ -119,6 +133,7 @@ fun AddTransactionDialog(
     // Update selected category when type changes (skip on first load if editing)
     var isFirstTypeSelection by remember { mutableStateOf(transactionToEdit == null) }
     LaunchedEffect(selectedType) {
+        if (selectedType == "RECEIPT") return@LaunchedEffect
         if (!isFirstTypeSelection) {
             isFirstTypeSelection = true
             return@LaunchedEffect
@@ -224,11 +239,14 @@ fun AddTransactionDialog(
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    val types = listOf(
-                        Triple("EXPENSE", "Расход", ExpenseRed),
-                        Triple("INCOME", "Доход", IncomeGreen),
-                        Triple("TRANSFER", "Перевод", TransferBlue)
-                    )
+                    val types = buildList {
+                        add(Triple("EXPENSE", "Расход", ExpenseRed))
+                        add(Triple("INCOME", "Доход", IncomeGreen))
+                        add(Triple("TRANSFER", "Перевод", TransferBlue))
+                        if (transactionToEdit != null) {
+                            add(Triple("RECEIPT", "Чек", MaterialTheme.colorScheme.primary))
+                        }
+                    }
                     types.forEach { (typeKey, label, color) ->
                         val isSelected = selectedType == typeKey
                         Box(
@@ -237,7 +255,8 @@ fun AddTransactionDialog(
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) color else Color.Transparent)
                                 .clickable { selectedType = typeKey }
-                                .padding(vertical = 10.dp),
+                                .padding(vertical = 10.dp)
+                                .testTag("tab_${typeKey.lowercase()}"),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -252,7 +271,47 @@ fun AddTransactionDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Amount Input
+                if (selectedType == "RECEIPT") {
+                    if (fileManager != null) {
+                        val ctx = LocalContext.current
+                        val effectivePrefs = preferenceManager ?: remember {
+                            com.example.service.receipt.ReceiptPreferenceManager(ctx)
+                        }
+                        ReceiptTabContent(
+                            receiptWithItems = receiptWithItems,
+                            fileManager = fileManager,
+                            preferenceManager = effectivePrefs,
+                            transactionAmount = amountText.toDoubleOrNull() ?: transactionToEdit?.amount,
+                            onAttachPhoto = { path -> onAttachReceiptPhoto?.invoke(path) },
+                            onDeletePhoto = { onDeleteReceiptPhoto?.invoke() },
+                            onDeleteQrData = { onDeleteReceiptQrData?.invoke() },
+                            onProcessQrScanned = { qrRaw -> onProcessQrScanned?.invoke(qrRaw) },
+                            isQrLoading = isReceiptQrLoading,
+                            qrErrorMessage = receiptQrErrorMessage,
+                            onClearQrError = { onClearReceiptQrError?.invoke() }
+                        )
+                    } else {
+                        Text(
+                            text = "Менеджер чеков недоступен",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("done_receipt_tab_button"),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("Готово", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                } else {
+                    // Amount Input
                 val currentAccount = accounts.find { it.id == selectedAccountId }
                 val currencySymbol = CurrencyHelper.currencySymbols[currentAccount?.currency ?: "RUB"] ?: "₽"
 
@@ -785,6 +844,7 @@ fun AddTransactionDialog(
                             fontSize = 16.sp
                         )
                     }
+                }
                 }
             }
         }

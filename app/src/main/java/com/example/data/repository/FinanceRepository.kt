@@ -16,6 +16,7 @@ class FinanceRepository(private val db: AppDatabase) {
     private val pendingNotificationDao = db.pendingNotificationDao()
     private val plannedTransactionDao = db.plannedTransactionDao()
     private val aiMessageDao = db.aiMessageDao()
+    private val receiptDao = db.receiptDao()
 
     // Pending Bank Notifications
     val unprocessedNotifications: Flow<List<PendingNotificationEntity>> = pendingNotificationDao.getUnprocessedNotifications()
@@ -148,6 +149,13 @@ class FinanceRepository(private val db: AppDatabase) {
             }
         }
         
+        val receipt = receiptDao.getReceiptEntityByTransactionId(transaction.id)
+        receipt?.imagePath?.let { path ->
+            try {
+                java.io.File(path).delete()
+            } catch (e: Exception) {}
+        }
+
         transactionDao.deleteTransaction(transaction)
     }
 
@@ -310,5 +318,87 @@ class FinanceRepository(private val db: AppDatabase) {
 
     suspend fun clearAiMessages() {
         aiMessageDao.deleteAllMessages()
+    }
+
+    // Receipts
+    fun getReceiptByTransactionId(transactionId: Long): Flow<ReceiptWithItems?> =
+        receiptDao.getReceiptByTransactionId(transactionId)
+
+    suspend fun getReceiptByTransactionIdSync(transactionId: Long): ReceiptWithItems? =
+        receiptDao.getReceiptByTransactionIdSync(transactionId)
+
+    suspend fun getReceiptEntityByTransactionId(transactionId: Long): ReceiptEntity? =
+        receiptDao.getReceiptEntityByTransactionId(transactionId)
+
+    suspend fun insertReceipt(receipt: ReceiptEntity): Long =
+        receiptDao.insertReceipt(receipt)
+
+    suspend fun updateReceipt(receipt: ReceiptEntity) =
+        receiptDao.updateReceipt(receipt)
+
+    suspend fun saveReceiptWithItems(receipt: ReceiptEntity, items: List<ReceiptItemEntity>): Long =
+        receiptDao.saveReceiptWithItems(receipt, items)
+
+    suspend fun deleteReceiptByTransactionId(transactionId: Long) {
+        val existing = receiptDao.getReceiptEntityByTransactionId(transactionId)
+        existing?.imagePath?.let { path ->
+            try { java.io.File(path).delete() } catch (e: Exception) {}
+        }
+        receiptDao.deleteReceiptByTransactionId(transactionId)
+    }
+
+    suspend fun deleteReceipt(receipt: ReceiptEntity) {
+        receipt.imagePath?.let { path ->
+            try { java.io.File(path).delete() } catch (e: Exception) {}
+        }
+        receiptDao.deleteReceipt(receipt)
+    }
+
+    suspend fun deleteReceiptPhoto(transactionId: Long): String? {
+        val existing = receiptDao.getReceiptByTransactionIdSync(transactionId) ?: return null
+        val oldPath = existing.receipt.imagePath
+        val hasQrData = !existing.receipt.rawQrData.isNullOrBlank() ||
+                !existing.receipt.merchant.isNullOrBlank() ||
+                existing.receipt.total != null ||
+                existing.items.isNotEmpty()
+
+        if (hasQrData) {
+            receiptDao.updateReceipt(existing.receipt.copy(imagePath = null))
+        } else {
+            receiptDao.deleteReceipt(existing.receipt)
+        }
+
+        if (oldPath != null) {
+            try { java.io.File(oldPath).delete() } catch (e: Exception) {}
+        }
+        return oldPath
+    }
+
+    suspend fun deleteReceiptQrData(transactionId: Long) {
+        val existing = receiptDao.getReceiptByTransactionIdSync(transactionId) ?: return
+        receiptDao.deleteReceiptItemsByReceiptId(existing.receipt.id)
+
+        if (existing.receipt.imagePath != null) {
+            receiptDao.updateReceipt(
+                existing.receipt.copy(
+                    merchant = null,
+                    dateTime = null,
+                    total = null,
+                    fiscalNumber = null,
+                    fiscalDocument = null,
+                    fiscalSign = null,
+                    operationType = null,
+                    rawQrData = null
+                )
+            )
+        } else {
+            receiptDao.deleteReceipt(existing.receipt)
+        }
+    }
+
+    suspend fun cleanOrphanReceiptFiles(receiptFileManager: com.example.service.receipt.ReceiptFileManager): Int {
+        val allReceipts = receiptDao.getAllReceiptsSync()
+        val validPaths = allReceipts.mapNotNull { it.imagePath }.toSet()
+        return receiptFileManager.cleanOrphanFiles(validPaths)
     }
 }

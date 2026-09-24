@@ -21,9 +21,11 @@ import kotlinx.coroutines.launch
         DebtEntity::class,
         PendingNotificationEntity::class,
         PlannedTransactionEntity::class,
-        AiMessageEntity::class
+        AiMessageEntity::class,
+        ReceiptEntity::class,
+        ReceiptItemEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,6 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pendingNotificationDao(): PendingNotificationDao
     abstract fun plannedTransactionDao(): PlannedTransactionDao
     abstract fun aiMessageDao(): AiMessageDao
+    abstract fun receiptDao(): ReceiptDao
 
     companion object {
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
@@ -71,6 +74,41 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `receipts` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`transactionId` INTEGER NOT NULL, " +
+                        "`imagePath` TEXT, " +
+                        "`merchant` TEXT, " +
+                        "`dateTime` INTEGER, " +
+                        "`total` REAL, " +
+                        "`fiscalNumber` TEXT, " +
+                        "`fiscalDocument` TEXT, " +
+                        "`fiscalSign` TEXT, " +
+                        "`operationType` TEXT, " +
+                        "`rawQrData` TEXT, " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE" +
+                    ")"
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_receipts_transactionId` ON `receipts` (`transactionId`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `receipt_items` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`receiptId` INTEGER NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`quantity` REAL NOT NULL, " +
+                        "`price` REAL NOT NULL, " +
+                        "`total` REAL NOT NULL, " +
+                        "FOREIGN KEY(`receiptId`) REFERENCES `receipts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE" +
+                    ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_receipt_items_receiptId` ON `receipt_items` (`receiptId`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -81,7 +119,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "manimani_database"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()
