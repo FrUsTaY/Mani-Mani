@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="gemini-svg.svg" alt="Логотип ManiMani" width="120" height="120" />
+  <img src="icon.png" alt="Логотип ManiMani" width="120" height="120" />
   <h1>ManiMani</h1>
   <p><b>Умный трекер личных финансов с ИИ-ассистентом и парсингом банковских уведомлений</b></p>
 </div>
