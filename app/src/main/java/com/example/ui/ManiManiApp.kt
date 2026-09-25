@@ -71,6 +71,7 @@ fun ManiManiApp(
     var showMe2MeTransferDialog by remember { mutableStateOf(false) }
     var showIncomeDistributionDialog by remember { mutableStateOf(false) }
     var showManageCategoriesDialog by remember { mutableStateOf(false) }
+    var pendingAiPromptConfirmation by remember { mutableStateOf<AiPromptType?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -251,9 +252,10 @@ fun ManiManiApp(
                         },
                         onOpenGeminiAssistant = { promptType ->
                             if (promptType != null) {
-                                viewModel.askGemini(promptType)
+                                pendingAiPromptConfirmation = promptType
+                            } else {
+                                showGeminiAssistantScreen = true
                             }
-                            showGeminiAssistantScreen = true
                         },
                         onOpenPaydaySettings = { showPaydaySettingsDialog = true },
                         onOpenMe2MeTransfer = { showMe2MeTransferDialog = true },
@@ -278,8 +280,7 @@ fun ManiManiApp(
                     ManiManiNavTab.ANALYTICS -> AnalyticsScreen(
                         state = state,
                         onOpenGeminiAssistant = { promptType ->
-                            viewModel.askGemini(promptType)
-                            showGeminiAssistantScreen = true
+                            pendingAiPromptConfirmation = promptType
                         },
                         onAskAiQuestion = { userQuestion ->
                             viewModel.askGemini(AiPromptType.FULL_AUDIT, userQuestion)
@@ -291,7 +292,7 @@ fun ManiManiApp(
 
                     ManiManiNavTab.PLANNING -> PlanningScreen(
                         state = state,
-                        onAddBudget = { catId, limit -> viewModel.addBudget(catId, limit) },
+                        onAddBudget = { catId, limit, periodKey -> viewModel.addBudget(catId, limit, periodKey) },
                         onDeleteBudget = { viewModel.deleteBudget(it) },
                         onAddGoal = { name, target, curr, col, icon ->
                             viewModel.addGoal(name, target, curr, col, icon)
@@ -315,8 +316,7 @@ fun ManiManiApp(
                             excludeFromStats = it.excludeFromStats
                         ) },
                         onOpenGeminiAssistant = { promptType ->
-                            viewModel.askGemini(promptType)
-                            showGeminiAssistantScreen = true
+                            pendingAiPromptConfirmation = promptType
                         },
                         onOpenPaydaySettings = { showPaydaySettingsDialog = true }
                     )
@@ -513,6 +513,21 @@ fun ManiManiApp(
                     )
                 )
                 accountToEdit = null
+            }
+        )
+    }
+
+    pendingAiPromptConfirmation?.let { prompt ->
+        com.example.ui.components.AiPromptConfirmationDialog(
+            promptType = prompt,
+            onConfirm = {
+                val p = prompt
+                pendingAiPromptConfirmation = null
+                viewModel.askGemini(p)
+                showGeminiAssistantScreen = true
+            },
+            onDismiss = {
+                pendingAiPromptConfirmation = null
             }
         )
     }

@@ -37,7 +37,7 @@ import com.example.ui.viewmodel.FinanceUiState
 @Composable
 fun PlanningScreen(
     state: FinanceUiState,
-    onAddBudget: (categoryId: Long?, limitAmount: Double) -> Unit,
+    onAddBudget: (categoryId: Long?, limitAmount: Double, periodKey: String) -> Unit,
     onDeleteBudget: (BudgetEntity) -> Unit,
     onAddGoal: (name: String, target: Double, current: Double, colorHex: String, iconName: String) -> Unit,
     onEditGoal: (GoalEntity) -> Unit = {},
@@ -509,7 +509,7 @@ fun PlanningScreen(
             categories = state.categories.filter { it.type == "EXPENSE" },
             onDismiss = { showAddBudgetDialog = false },
             onConfirm = { catId, limit ->
-                onAddBudget(catId, limit)
+                onAddBudget(catId, limit, "")
                 showAddBudgetDialog = false
             }
         )
@@ -758,7 +758,12 @@ fun AddBudgetDialog(
 
                 OutlinedTextField(
                     value = limitText,
-                    onValueChange = { limitText = it.replace(',', '.'); errorMessage = null },
+                    onValueChange = { input ->
+                        if (input.isEmpty() || input.matches(Regex("""^\d*([.,]\d{0,2})?$"""))) {
+                            limitText = input.replace(',', '.')
+                            errorMessage = null
+                        }
+                    },
                     label = { Text("Сумма лимита в месяц") },
                     placeholder = { Text("15000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

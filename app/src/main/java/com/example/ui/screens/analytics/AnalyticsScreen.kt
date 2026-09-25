@@ -89,18 +89,15 @@ fun AnalyticsScreen(
 
     // Filter transactions based on selected period
     val now = System.currentTimeMillis()
-    val (filteredIncome, filteredExpense, filteredSpendings, filteredTxs) = remember(
-        selectedPeriodType,
-        state.transactions,
-        state.accounts,
-        state.categories,
-        state.baseCurrency
-    ) {
-        val (startTime, endTime) = when (selectedPeriodType) {
+    val preferences = remember { com.example.service.UserFinancePreferences(context) }
+    val activePaydayPeriod = remember(state.payday) {
+        preferences.calculatePaydayPeriod(state.payday, now)
+    }
+
+    val (periodStartTime, periodEndTime) = remember(selectedPeriodType, activePaydayPeriod) {
+        when (selectedPeriodType) {
             AnalyticsPeriodType.PAYDAY -> {
-                val prefs = com.example.service.UserFinancePreferences(context)
-                val period = prefs.calculatePaydayPeriod(state.payday, now)
-                Pair(period.startTime, period.endTime)
+                Pair(activePaydayPeriod.startTime, activePaydayPeriod.endTime)
             }
             AnalyticsPeriodType.CURRENT_MONTH -> {
                 val cal = Calendar.getInstance().apply {
@@ -108,12 +105,15 @@ fun AnalyticsScreen(
                     set(Calendar.HOUR_OF_DAY, 0)
                     set(Calendar.MINUTE, 0)
                     set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
                 }
                 val start = cal.timeInMillis
                 val maxDay = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
                 cal.set(Calendar.DAY_OF_MONTH, maxDay)
                 cal.set(Calendar.HOUR_OF_DAY, 23)
                 cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
                 Pair(start, cal.timeInMillis)
             }
             AnalyticsPeriodType.PREV_MONTH -> {
@@ -123,12 +123,15 @@ fun AnalyticsScreen(
                     set(Calendar.HOUR_OF_DAY, 0)
                     set(Calendar.MINUTE, 0)
                     set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
                 }
                 val start = cal.timeInMillis
                 val maxDay = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
                 cal.set(Calendar.DAY_OF_MONTH, maxDay)
                 cal.set(Calendar.HOUR_OF_DAY, 23)
                 cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
                 Pair(start, cal.timeInMillis)
             }
             AnalyticsPeriodType.LAST_30_DAYS -> {
@@ -138,9 +141,18 @@ fun AnalyticsScreen(
                 Pair(0L, Long.MAX_VALUE)
             }
         }
+    }
 
+    val (filteredIncome, filteredExpense, filteredSpendings, filteredTxs) = remember(
+        periodStartTime,
+        periodEndTime,
+        state.transactions,
+        state.accounts,
+        state.categories,
+        state.baseCurrency
+    ) {
         val txs = state.transactions.filter {
-            it.timestamp in startTime..endTime && !it.excludeFromStats
+            it.timestamp in periodStartTime..periodEndTime && !it.excludeFromStats
         }
 
         val inc = txs.sumOf { tx ->
@@ -237,25 +249,23 @@ fun AnalyticsScreen(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
     }
-    val paydayEnd = remember(state.dayOfCycle, state.totalDaysInCycle) {
-        val oneDay = 86_400_000L
-        val cycleStart = now - (state.dayOfCycle - 1) * oneDay
-        cycleStart + (state.totalDaysInCycle * oneDay)
-    }
-    val remainingPlannedPayments = remember(state.plannedTransactions, startOfToday, paydayEnd) {
+    val remainingPlannedPayments = remember(state.plannedTransactions, startOfToday, periodStartTime, periodEndTime) {
         state.plannedTransactions
-            .filter { it.type == "EXPENSE" && it.plannedDate >= startOfToday && it.plannedDate <= paydayEnd }
+            .filter { it.type == "EXPENSE" && it.plannedDate in max(startOfToday, periodStartTime)..periodEndTime }
             .sumOf { it.amount }
     }
-    val remainingPlannedIncome = remember(state.plannedTransactions, startOfToday, paydayEnd) {
+    val remainingPlannedIncome = remember(state.plannedTransactions, startOfToday, periodStartTime, periodEndTime) {
         state.plannedTransactions
-            .filter { it.type == "INCOME" && it.plannedDate >= startOfToday && it.plannedDate <= paydayEnd }
+            .filter { it.type == "INCOME" && it.plannedDate in max(startOfToday, periodStartTime)..periodEndTime }
             .sumOf { it.amount }
     }
-    val remainingCategoryBudgets = remember(state.budgets, filteredSpendings, state.categorySpendings) {
+    val activePaydayBudgets = remember(state.budgets, activePaydayPeriod.periodKey) {
+        state.budgets.filter { it.periodMonth == activePaydayPeriod.periodKey }
+    }
+    val remainingCategoryBudgets = remember(activePaydayBudgets, filteredSpendings, state.categorySpendings) {
         val currentSpendings = if (filteredSpendings.isNotEmpty()) filteredSpendings else state.categorySpendings
         val spendingByCatId = currentSpendings.associate { it.category.id to it.totalAmount }
-        state.budgets.sumOf { budget ->
+        activePaydayBudgets.sumOf { budget ->
             val spentInCat = spendingByCatId[budget.categoryId] ?: 0.0
             (budget.limitAmount - spentInCat).coerceAtLeast(0.0)
         }
@@ -272,14 +282,13 @@ fun AnalyticsScreen(
         contentPadding = PaddingValues(bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-            // 1. Top Bar: "Аналитика" + Gemini Assistant + Settings
+            // 1. Top Bar: "Аналитика"
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 20.dp, end = 12.dp, top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "Аналитика",
@@ -287,32 +296,6 @@ fun AnalyticsScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 24.sp
                     )
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // AI Assistant button
-                        IconButton(
-                            onClick = { onOpenGeminiAssistant(AiPromptType.FULL_AUDIT) },
-                            modifier = Modifier.testTag("analytics_ai_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Финансовый ИИ-аудит",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        // Settings Gear
-                        IconButton(
-                            onClick = onOpenPaydaySettings,
-                            modifier = Modifier.testTag("analytics_settings_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Настройки аналитики и периода",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
                 }
             }
 
@@ -528,6 +511,7 @@ fun AnalyticsScreen(
             currency = state.baseCurrency,
             totalBalance = state.totalBalance,
             remainingPlannedExpenses = remainingPlannedExpenses,
+            remainingPlannedIncome = remainingPlannedIncome,
             onDismiss = { showFreeMoneySheet = false }
         )
     }

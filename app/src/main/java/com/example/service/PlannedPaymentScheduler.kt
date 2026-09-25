@@ -1,4 +1,4 @@
-﻿package com.example.service
+package com.example.service
 
 import android.content.Context
 import androidx.work.ExistingWorkPolicy
@@ -24,6 +24,7 @@ object PlannedPaymentScheduler {
         val workRequest = OneTimeWorkRequestBuilder<PlannedPaymentReminderWorker>()
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
             .setInputData(data)
+            .addTag("planned_reminder")
             .addTag(workTag)
             .build()
 
@@ -36,5 +37,9 @@ object PlannedPaymentScheduler {
 
     fun cancelReminder(context: Context, plannedId: Long) {
         WorkManager.getInstance(context).cancelUniqueWork("planned_reminder_$plannedId")
+    }
+
+    fun cancelAllReminders(context: Context) {
+        WorkManager.getInstance(context).cancelAllWorkByTag("planned_reminder")
     }
 }

@@ -66,7 +66,7 @@ data class PlannedPaymentItem(
 @Composable
 fun ZenPlansMainView(
     state: FinanceUiState,
-    onAddBudget: (categoryId: Long?, limitAmount: Double) -> Unit,
+    onAddBudget: (categoryId: Long?, limitAmount: Double, periodKey: String) -> Unit,
     onDeleteBudget: (BudgetEntity) -> Unit,
     onAddPlannedTransaction: (com.example.data.entity.PlannedTransactionEntity) -> Unit = {},
     onUpdatePlannedTransaction: (com.example.data.entity.PlannedTransactionEntity) -> Unit = {},
@@ -174,13 +174,18 @@ fun ZenPlansMainView(
         map
     }
 
-    // Budgets mapped by categoryId
-    val budgetMap = remember(state.budgets) {
-        state.budgets.associateBy { it.categoryId }
+    // Budgets mapped by categoryId for current active cycle
+    val currentPeriodKey = period.periodKey
+    val currentCycleBudgets = remember(state.budgets, currentPeriodKey) {
+        state.budgets.filter { it.periodMonth == currentPeriodKey }
     }
 
-    // Sum of planned category budgets
-    val totalCategoryBudgets = state.budgets.sumOf { it.limitAmount }
+    val budgetMap = remember(currentCycleBudgets) {
+        currentCycleBudgets.associateBy { it.categoryId }
+    }
+
+    // Sum of planned category budgets in this cycle
+    val totalCategoryBudgets = currentCycleBudgets.sumOf { it.limitAmount }
 
     val startOfToday = remember {
         Calendar.getInstance().apply {
@@ -217,7 +222,7 @@ fun ZenPlansMainView(
     }
 
     // "Ещё в планах" (Remaining planned expenses)
-    val remainingCategoryBudgets = state.budgets.sumOf { budget ->
+    val remainingCategoryBudgets = currentCycleBudgets.sumOf { budget ->
         val spentInCat = spendingByCategory[budget.categoryId] ?: 0.0
         (budget.limitAmount - spentInCat).coerceAtLeast(0.0)
     }
@@ -906,7 +911,7 @@ fun ZenPlansMainView(
             currency = state.baseCurrency,
             onDismiss = { categoryToEditPlan = null },
             onSave = { newLimit ->
-                onAddBudget(cat.id, newLimit)
+                onAddBudget(cat.id, newLimit, currentPeriodKey)
                 categoryToEditPlan = null
             },
             onDelete = {
@@ -2181,7 +2186,7 @@ fun AddPlannedPaymentDialog(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Напомнить о платеже",
+                                    text = "Напоминать об операции",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -2260,7 +2265,13 @@ fun EditCategoryPlanDialog(
     onSave: (Double) -> Unit,
     onDelete: () -> Unit
 ) {
-    var limitText by remember { mutableStateOf(currentLimit?.toInt()?.toString() ?: "30000") }
+    var limitText by remember { 
+        mutableStateOf(
+            currentLimit?.let { 
+                if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() 
+            } ?: ""
+        ) 
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -2287,10 +2298,15 @@ fun EditCategoryPlanDialog(
 
                 OutlinedTextField(
                     value = limitText,
-                    onValueChange = { limitText = it.filter { c -> c.isDigit() } },
+                    onValueChange = { input ->
+                        if (input.isEmpty() || input.matches(Regex("""^\d*([.,]\d{0,2})?$"""))) {
+                            limitText = input.replace(',', '.')
+                        }
+                    },
                     label = { Text("Сумма прогноза/плана ($currency)") },
+                    placeholder = { Text("30000.00") },
                     shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
 

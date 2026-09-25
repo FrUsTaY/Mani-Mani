@@ -259,6 +259,8 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun clearAllData(keepAccountStructure: Boolean = true) {
         transactionDao.deleteAllTransactions()
         debtDao.deleteAllDebts()
+        budgetDao.deleteAllBudgets()
+        plannedTransactionDao.deleteAllPlannedTransactions()
         pendingNotificationDao.deleteAllNotifications()
         aiMessageDao.deleteAllMessages()
         

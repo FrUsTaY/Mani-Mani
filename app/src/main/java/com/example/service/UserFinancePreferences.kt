@@ -13,7 +13,10 @@ data class PaydayPeriod(
     val daysUntilPayday: Int,
     val dayOfCycle: Int,
     val totalDaysInCycle: Int
-)
+) {
+    val periodKey: String
+        get() = "PAYDAY_${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(startTime))}"
+}
 
 enum class AppThemeMode(val title: String) {
     SYSTEM("Системная"),

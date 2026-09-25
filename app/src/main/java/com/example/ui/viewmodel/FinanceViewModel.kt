@@ -9,6 +9,7 @@ import com.example.data.repository.FinanceRepository
 import com.example.data.repository.BackupRepository
 import android.net.Uri
 import com.example.service.PushNotificationHelper
+import com.example.service.PlannedPaymentScheduler
 import com.example.service.UserBankHelper
 import com.example.service.UserFinancePreferences
 import com.example.service.AppThemeMode
@@ -315,8 +316,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             CategorySpending(cat, amount, pct)
         }.sortedByDescending { it.totalAmount }
 
-        // 4. Budget progresses
-        val budgetProgresses = budgets.map { budget ->
+        // 4. Budget progresses (for current payday period)
+        val activeBudgets = budgets.filter { it.periodMonth == paydayPeriod.periodKey }
+        val budgetProgresses = activeBudgets.map { budget ->
             val category = budget.categoryId?.let { catMap[it] }
             val spent = if (budget.categoryId == null) {
                 monthlyExpense
@@ -776,9 +778,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun addBudget(categoryId: Long?, limitAmount: Double) {
+    fun addBudget(categoryId: Long?, limitAmount: Double, periodKey: String = "") {
         viewModelScope.launch {
-            val existing = uiState.value.budgets.find { it.categoryId == categoryId && it.periodMonth == "DEFAULT" }
+            val key = periodKey.ifEmpty {
+                val config = appConfigFlow.first()
+                userFinancePrefs.calculatePaydayPeriod(config.payday).periodKey
+            }
+            val existing = uiState.value.budgets.find { it.categoryId == categoryId && it.periodMonth == key }
             if (existing != null) {
                 repository.insertBudget(existing.copy(limitAmount = limitAmount))
             } else {
@@ -786,7 +792,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     BudgetEntity(
                         categoryId = categoryId,
                         limitAmount = limitAmount,
-                        periodMonth = "DEFAULT"
+                        periodMonth = key
                     )
                 )
             }
@@ -1019,6 +1025,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun clearAllData(keepAccountStructure: Boolean = true) {
         viewModelScope.launch {
             repository.clearAllData(keepAccountStructure)
+            PlannedPaymentScheduler.cancelAllReminders(getApplication<Application>())
             _statusMessage.value = if (keepAccountStructure) {
                 "Все операции очищены, балансы счетов обнулены"
             } else {

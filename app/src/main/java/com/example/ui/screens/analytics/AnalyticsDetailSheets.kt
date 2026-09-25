@@ -834,6 +834,7 @@ fun FreeMoneyDetailSheet(
     currency: String,
     totalBalance: Double,
     remainingPlannedExpenses: Double,
+    remainingPlannedIncome: Double = 0.0,
     onDismiss: () -> Unit
 ) {
     val days = max(daysUntilPayday, 1)
@@ -912,6 +913,16 @@ fun FreeMoneyDetailSheet(
                     ) {
                         Text("Общий текущий баланс", style = MaterialTheme.typography.bodyMedium)
                         Text(CurrencyHelper.formatAmount(totalBalance, currency), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (remainingPlannedIncome > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Запланированные доходы", style = MaterialTheme.typography.bodyMedium)
+                            Text("+${CurrencyHelper.formatAmount(remainingPlannedIncome, currency)}", fontWeight = FontWeight.SemiBold, color = IncomeGreen, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(

@@ -945,7 +945,7 @@ fun AccountsSettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "• Все тестовые операции и переводы будут удалены\n• Тестовые долги и накопления обнулятся\n• Категории расходов и доходов сохранятся",
+                        text = "• Все операции, переводы и ожидаемые планы будут удалены\n• Плановые лимиты категорий и долги очистятся\n• Категории расходов и доходов сохранятся",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

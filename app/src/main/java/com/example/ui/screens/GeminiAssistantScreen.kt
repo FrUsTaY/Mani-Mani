@@ -56,6 +56,7 @@ fun GeminiAssistantScreen(
     val listState = rememberLazyListState()
 
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var promptToConfirm by remember { mutableStateOf<AiPromptType?>(null) }
 
     // Auto-scroll to bottom on new message
     LaunchedEffect(state.aiMessages.size, state.aiState) {
@@ -255,6 +256,7 @@ fun GeminiAssistantScreen(
                 val prompts = listOf(
                     AiPromptType.FULL_AUDIT,
                     AiPromptType.SAVINGS,
+                    AiPromptType.INCOME_VS_EXPENSE,
                     AiPromptType.BUDGETS_AND_GOALS,
                     AiPromptType.DEBT_AND_SAFETY
                 )
@@ -262,11 +264,7 @@ fun GeminiAssistantScreen(
                     FilterChip(
                         selected = false,
                         onClick = {
-                            if (!state.isAiConfigured) {
-                                showApiKeyDialog = true
-                            } else {
-                                onAskGemini(prompt, null)
-                            }
+                            promptToConfirm = prompt
                         },
                         label = {
                             Text("${prompt.iconEmoji} ${prompt.title}")
@@ -285,11 +283,7 @@ fun GeminiAssistantScreen(
                     isKeyConfigured = state.isAiConfigured,
                     onConfigureKey = { showApiKeyDialog = true },
                     onSelectPrompt = { prompt ->
-                        if (!state.isAiConfigured) {
-                            showApiKeyDialog = true
-                        } else {
-                            onAskGemini(prompt, null)
-                        }
+                        promptToConfirm = prompt
                     }
                 )
             } else {
@@ -382,6 +376,24 @@ fun GeminiAssistantScreen(
             onTest = onTestApiKey
         )
     }
+
+    promptToConfirm?.let { prompt ->
+        com.example.ui.components.AiPromptConfirmationDialog(
+            promptType = prompt,
+            onConfirm = {
+                val p = prompt
+                promptToConfirm = null
+                if (!state.isAiConfigured) {
+                    showApiKeyDialog = true
+                } else {
+                    onAskGemini(p, null)
+                }
+            },
+            onDismiss = {
+                promptToConfirm = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -449,6 +461,10 @@ fun AiEmptyWelcomeView(
             AiPresetCard(
                 prompt = AiPromptType.SAVINGS,
                 onClick = { onSelectPrompt(AiPromptType.SAVINGS) }
+            )
+            AiPresetCard(
+                prompt = AiPromptType.INCOME_VS_EXPENSE,
+                onClick = { onSelectPrompt(AiPromptType.INCOME_VS_EXPENSE) }
             )
             AiPresetCard(
                 prompt = AiPromptType.BUDGETS_AND_GOALS,
