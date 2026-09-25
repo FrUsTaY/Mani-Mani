@@ -1,21 +1,51 @@
-﻿MIT License
-
+ManiMani Reference and Source-Available License
 Copyright (c) 2026 FrUsTaY
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the Software), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is hereby granted to any person obtaining a copy of this software 
+and associated documentation files (the "Software") to view, inspect, download, 
+compile, and run the Software locally for personal, educational, research, 
+and code-study purposes, subject to the following terms and conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. PERMITTED USES:
+   - Ideas and Concepts: You are free to adopt, learn from, and implement ideas, 
+     concepts, algorithms, architectural patterns, and technical solutions observed 
+     in this Software in your own independent projects.
+   - Code Snippets: You may reuse individual routines, specific functions, and isolated 
+     code snippets from this Software within your own independent applications.
+   - Local Compilation: You may compile and run the Software locally on your own devices 
+     for personal evaluation, security auditing, testing, or development.
 
-THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. RESTRICTIONS AND PROHIBITIONS:
+   - NO CLONING: You may NOT copy, redistribute, or publish the Software in whole or 
+     in substantial part as a standalone application or derived clone.
+   - NO REBRANDING OR WHITE-LABELING: You may NOT take the Software (or a substantially 
+     similar codebase), change its name, icon, visual branding, or package identifier, 
+     and distribute it publicly as your own application.
+   - NO COMMERCIAL EXPLOITATION: You may NOT sell, license, rent, monetize, charge fees 
+     for, or distribute for payment the Software, its substantial clones, or any 
+     derivative versions of this application (e.g., turning the Software into a paid 
+     app or releasing a commercial "Pro" variant).
+   - PUBLIC BINARY DISTRIBUTION: Local compilation for personal use is permitted, 
+     but public distribution or hosting of pre-compiled binaries (such as APK or AAB packages) 
+     of the Software or its substantial derivatives via app stores, marketplaces, websites, 
+     or file-sharing channels without prior written permission from the original author 
+     is strictly prohibited. Official binaries are distributed exclusively by the author.
+
+3. CLARIFICATION ON INDEPENDENT APPLICATIONS:
+   For the avoidance of doubt, developing an independent application with similar or identical 
+   functionality (such as expense tracking, push-notification parsing, or receipt scanning), 
+   or implementing features inspired by this Software from scratch or using permitted 
+   code snippets — even if that independent application is commercial or monetized — is 
+   fully allowed and does NOT constitute a violation of this License.
+
+4. ATTRIBUTION:
+   Any permitted use of code snippets, algorithms, or direct technical solutions from this 
+   Software should retain appropriate attribution and acknowledgment of the original author.
+
+5. DISCLAIMER:
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+   PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
+   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION 
+   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
