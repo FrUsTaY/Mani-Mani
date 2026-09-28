@@ -157,4 +157,46 @@ class ReceiptDaoTest {
         // Check receipt is deleted
         assertNull(repository.getReceiptByTransactionIdSync(txnId))
     }
+
+    @Test
+    fun testGetAllReceiptTransactionIdsFlow() = runBlocking {
+        val accId = db.accountDao().insertAccount(
+            AccountEntity(name = "Card", type = "DEBIT", balance = 10000.0)
+        )
+        val txnId1 = db.transactionDao().insertTransaction(
+            TransactionEntity(type = "EXPENSE", amount = 100.0, accountId = accId)
+        )
+        val txnId2 = db.transactionDao().insertTransaction(
+            TransactionEntity(type = "EXPENSE", amount = 200.0, accountId = accId)
+        )
+
+        // Initially empty
+        var ids = repository.receiptTransactionIds.first()
+        assertTrue(ids.isEmpty())
+
+        // Attach receipt to txn1
+        val receipt1 = ReceiptEntity(
+            transactionId = txnId1,
+            imagePath = "/data/user/0/receipt_1.jpg"
+        )
+        repository.insertReceipt(receipt1)
+
+        ids = repository.receiptTransactionIds.first()
+        assertEquals(setOf(txnId1), ids)
+
+        // Attach receipt to txn2
+        val receipt2 = ReceiptEntity(
+            transactionId = txnId2,
+            fiscalSign = "12345678"
+        )
+        repository.insertReceipt(receipt2)
+
+        ids = repository.receiptTransactionIds.first()
+        assertEquals(setOf(txnId1, txnId2), ids)
+
+        // Delete receipt photo from txn1
+        repository.deleteReceiptPhoto(txnId1)
+        ids = repository.receiptTransactionIds.first()
+        assertEquals(setOf(txnId2), ids)
+    }
 }

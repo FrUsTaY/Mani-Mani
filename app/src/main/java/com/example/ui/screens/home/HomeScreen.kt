@@ -706,8 +706,9 @@ fun HomeScreen(
                         transaction = tx,
                         accountsMap = accountsMap,
                         categoriesMap = categoriesMap,
-goalsMap = goalsMap,
-debtsMap = debtsMap,
+                        goalsMap = goalsMap,
+                        debtsMap = debtsMap,
+                        hasReceipt = state.receiptTransactionIds.contains(tx.id),
                         onDelete = onDeleteTransaction,
                         onClick = { onEditTransaction(tx) }
                     )

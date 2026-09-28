@@ -73,7 +73,8 @@ data class FinanceUiState(
     val spamKeywords: Set<String> = emptySet(),
     val isReceiptApiKeyConfigured: Boolean = false,
     val receiptApiKey: String = "",
-    val receiptApiKeyMasked: String = ""
+    val receiptApiKeyMasked: String = "",
+    val receiptTransactionIds: Set<Long> = emptySet()
 )
 
 @Suppress("UNCHECKED_CAST")
@@ -383,7 +384,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _userApiKey,
         _isFirstLaunch,
         _aiInputText,
-        _receiptApiKey
+        _receiptApiKey,
+        repository.receiptTransactionIds
     ) { params ->
         val baseState = params[0] as FinanceUiState
         val messages = params[1] as List<AiMessage>
@@ -393,6 +395,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         val isFirstLaunch = params[5] as Boolean
         val aiInputText = params[6] as String
         val receiptKey = params[7] as String
+        @Suppress("UNCHECKED_CAST")
+        val receiptTxIds = params[8] as Set<Long>
         baseState.copy(
             aiMessages = messages,
             aiState = aiState,
@@ -403,7 +407,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             aiInputText = aiInputText,
             isReceiptApiKeyConfigured = receiptKey.isNotBlank(),
             receiptApiKey = receiptKey,
-            receiptApiKeyMasked = receiptPreferenceManager.getMaskedApiKey()
+            receiptApiKeyMasked = receiptPreferenceManager.getMaskedApiKey(),
+            receiptTransactionIds = receiptTxIds
         )
     }.stateIn(
         scope = viewModelScope,

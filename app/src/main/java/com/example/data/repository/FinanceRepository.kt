@@ -323,6 +323,8 @@ class FinanceRepository(private val db: AppDatabase) {
     }
 
     // Receipts
+    val receiptTransactionIds: Flow<Set<Long>> = receiptDao.getAllReceiptTransactionIds().map { it.toSet() }
+
     fun getReceiptByTransactionId(transactionId: Long): Flow<ReceiptWithItems?> =
         receiptDao.getReceiptByTransactionId(transactionId)
 

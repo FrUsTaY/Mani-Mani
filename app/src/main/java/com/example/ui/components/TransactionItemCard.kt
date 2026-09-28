@@ -37,6 +37,7 @@ fun TransactionItemCard(
     categoriesMap: Map<Long, CategoryEntity>,
     goalsMap: Map<Long, com.example.data.entity.GoalEntity> = emptyMap(),
     debtsMap: Map<Long, com.example.data.entity.DebtEntity> = emptyMap(),
+    hasReceipt: Boolean = false,
     onDelete: (TransactionEntity) -> Unit,
     onClick: ((TransactionEntity) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -132,12 +133,24 @@ fun TransactionItemCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = DateHelper.formatDate(transaction.timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    fontSize = 11.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = DateHelper.formatDate(transaction.timestamp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                    if (hasReceipt) {
+                        Text(
+                            text = "🧾",
+                            fontSize = 12.sp,
+                            modifier = Modifier.testTag("receipt_badge_${transaction.id}")
+                        )
+                    }
+                }
                 val isExcludeFromStats = transaction.excludeFromStats
                 val isExcludedFromAnalytics = account?.includeInAnalytics == false
                 if (goal != null || isExcludeFromStats || isExcludedFromAnalytics) {

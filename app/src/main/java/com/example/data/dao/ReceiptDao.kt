@@ -16,6 +16,9 @@ interface ReceiptDao {
     @Query("SELECT * FROM receipts WHERE transactionId = :transactionId")
     suspend fun getReceiptByTransactionIdSync(transactionId: Long): ReceiptWithItems?
 
+    @Query("SELECT DISTINCT transactionId FROM receipts WHERE imagePath IS NOT NULL OR rawQrData IS NOT NULL OR fiscalSign IS NOT NULL")
+    fun getAllReceiptTransactionIds(): Flow<List<Long>>
+
     @Query("SELECT * FROM receipts WHERE transactionId = :transactionId")
     suspend fun getReceiptEntityByTransactionId(transactionId: Long): ReceiptEntity?
 

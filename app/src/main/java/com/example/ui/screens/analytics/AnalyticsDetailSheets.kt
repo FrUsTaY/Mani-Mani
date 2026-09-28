@@ -49,6 +49,7 @@ fun IncomeVsExpenseDetailSheet(
     categoriesMap: Map<Long, CategoryEntity>,
     goalsMap: Map<Long, com.example.data.entity.GoalEntity> = emptyMap(),
     debtsMap: Map<Long, com.example.data.entity.DebtEntity> = emptyMap(),
+    receiptTransactionIds: Set<Long> = emptySet(),
     onDismiss: () -> Unit,
     onOpenGeminiAssistant: (AiPromptType) -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit = {},
@@ -290,8 +291,9 @@ fun IncomeVsExpenseDetailSheet(
                             transaction = tx,
                             accountsMap = accountsMap,
                             categoriesMap = categoriesMap,
-goalsMap = goalsMap,
-debtsMap = debtsMap,
+                            goalsMap = goalsMap,
+                            debtsMap = debtsMap,
+                            hasReceipt = receiptTransactionIds.contains(tx.id),
                             onDelete = onDeleteTransaction,
                             onClick = {
                                 onDismiss()
@@ -317,6 +319,7 @@ fun CategoryExpensesDetailSheet(
     categoriesMap: Map<Long, CategoryEntity>,
     goalsMap: Map<Long, com.example.data.entity.GoalEntity> = emptyMap(),
     debtsMap: Map<Long, com.example.data.entity.DebtEntity> = emptyMap(),
+    receiptTransactionIds: Set<Long> = emptySet(),
     onDismiss: () -> Unit,
     onDeleteTransaction: (TransactionEntity) -> Unit = {},
     onEditTransaction: (TransactionEntity) -> Unit = {}
@@ -503,8 +506,9 @@ fun CategoryExpensesDetailSheet(
                                                     transaction = tx,
                                                     accountsMap = accountsMap,
                                                     categoriesMap = categoriesMap,
-goalsMap = goalsMap,
-debtsMap = debtsMap,
+                                                    goalsMap = goalsMap,
+                                                    debtsMap = debtsMap,
+                                                    hasReceipt = receiptTransactionIds.contains(tx.id),
                                                     onDelete = onDeleteTransaction,
                                                     onClick = {
                                                         onDismiss()
@@ -537,6 +541,7 @@ fun PeriodComparisonDetailSheet(
     categoriesMap: Map<Long, CategoryEntity>,
     goalsMap: Map<Long, com.example.data.entity.GoalEntity> = emptyMap(),
     debtsMap: Map<Long, com.example.data.entity.DebtEntity> = emptyMap(),
+    receiptTransactionIds: Set<Long> = emptySet(),
     onDismiss: () -> Unit
 ) {
     val diff = currentExpense - prevExpense
@@ -661,8 +666,9 @@ fun PeriodComparisonDetailSheet(
                         transaction = tx,
                         accountsMap = accountsMap,
                         categoriesMap = categoriesMap,
-goalsMap = goalsMap,
-debtsMap = debtsMap,
+                        goalsMap = goalsMap,
+                        debtsMap = debtsMap,
+                        hasReceipt = receiptTransactionIds.contains(tx.id),
                         onDelete = { }
                     )
                 }

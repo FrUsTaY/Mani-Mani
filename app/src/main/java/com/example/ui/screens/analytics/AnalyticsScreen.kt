@@ -437,6 +437,7 @@ fun AnalyticsScreen(
             categoriesMap = categoriesMap,
             goalsMap = goalsMap,
             debtsMap = debtsMap,
+            receiptTransactionIds = state.receiptTransactionIds,
             onDismiss = { showIncomeExpenseSheet = false },
             onOpenGeminiAssistant = onOpenGeminiAssistant
         )
@@ -463,6 +464,7 @@ fun AnalyticsScreen(
             categoriesMap = categoriesMap,
             goalsMap = goalsMap,
             debtsMap = debtsMap,
+            receiptTransactionIds = state.receiptTransactionIds,
             onDismiss = { showCategoryExpenseSheet = false }
         )
     }
@@ -488,6 +490,7 @@ fun AnalyticsScreen(
             categoriesMap = categoriesMap,
             goalsMap = goalsMap,
             debtsMap = debtsMap,
+            receiptTransactionIds = state.receiptTransactionIds,
             onDismiss = { showPeriodComparisonSheet = false }
         )
     }
