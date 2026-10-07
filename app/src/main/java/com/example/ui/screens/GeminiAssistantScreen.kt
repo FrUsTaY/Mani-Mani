@@ -45,6 +45,7 @@ fun GeminiAssistantScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
     onAskGemini: (AiPromptType, String?) -> Unit,
+    onRetryGemini: () -> Unit,
     onClearChat: () -> Unit,
     onUpdateInputText: (String) -> Unit,
     onSaveApiKey: (String) -> Unit,
@@ -352,6 +353,18 @@ fun GeminiAssistantScreen(
                                         ) {
                                             Text("Настроить API ключ", color = MaterialTheme.colorScheme.onError)
                                         }
+                                    } else if (errorState.failedPromptType != null) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Button(
+                                            onClick = onRetryGemini,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.error
+                                            )
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Повторить", color = MaterialTheme.colorScheme.onError)
+                                        }
                                     }
                                 }
                             }
@@ -544,12 +557,14 @@ fun AiMessageCard(
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
                 modifier = Modifier.widthIn(max = 300.dp)
             ) {
-                Text(
-                    text = message.text,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                )
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        text = message.text,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
             }
         } else {
             Card(
@@ -608,12 +623,14 @@ fun AiMessageCard(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = message.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 22.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            lineHeight = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

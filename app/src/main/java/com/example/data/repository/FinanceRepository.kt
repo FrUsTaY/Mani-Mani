@@ -72,6 +72,14 @@ class FinanceRepository(private val db: AppDatabase) {
     }
 
     suspend fun addTransaction(transaction: TransactionEntity): Long {
+        if (transaction.type == "GOAL_WITHDRAWAL") {
+            val goalId = transaction.goalId ?: throw IllegalArgumentException("GOAL_WITHDRAWAL must have a goalId")
+            val goal = goalDao.getGoalById(goalId) ?: throw IllegalArgumentException("Goal not found")
+            if (transaction.amount > goal.currentAmount) {
+                throw IllegalArgumentException("Cannot withdraw more than goal current amount")
+            }
+        }
+
         val id = transactionDao.insertTransaction(transaction)
         
         // Update account balances automatically
@@ -88,15 +96,26 @@ class FinanceRepository(private val db: AppDatabase) {
                     accountDao.updateBalance(toId, transaction.amount)
                 }
             }
+            "GOAL_WITHDRAWAL" -> {
+                // from Goal to Account
+                transaction.toAccountId?.let { toId ->
+                    accountDao.updateBalance(toId, transaction.amount)
+                }
+            }
         }
         
         // Handle Goal funding (typically a TRANSFER, but we check if goalId is present)
         transaction.goalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
-                // If it's a transfer, we added to it. (Or expense)
-                val sign = if (transaction.type == "INCOME") -1 else 1 
-                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (transaction.amount * sign)))
+                if (transaction.type == "GOAL_WITHDRAWAL") {
+                    // Withdrawing from goal
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - transaction.amount))
+                } else {
+                    // If it's a transfer, we added to it. (Or expense)
+                    val sign = if (transaction.type == "INCOME") -1 else 1
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (transaction.amount * sign)))
+                }
             }
         }
         
@@ -131,13 +150,22 @@ class FinanceRepository(private val db: AppDatabase) {
                     accountDao.updateBalance(toId, -transaction.amount)
                 }
             }
+            "GOAL_WITHDRAWAL" -> {
+                transaction.toAccountId?.let { toId ->
+                    accountDao.updateBalance(toId, -transaction.amount)
+                }
+            }
         }
         
         transaction.goalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
-                val sign = if (transaction.type == "INCOME") -1 else 1
-                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (transaction.amount * sign)))
+                if (transaction.type == "GOAL_WITHDRAWAL") {
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + transaction.amount))
+                } else {
+                    val sign = if (transaction.type == "INCOME") -1 else 1
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (transaction.amount * sign)))
+                }
             }
         }
         
@@ -163,6 +191,16 @@ class FinanceRepository(private val db: AppDatabase) {
         oldTransaction: TransactionEntity,
         newTransaction: TransactionEntity
     ) {
+        if (newTransaction.type == "GOAL_WITHDRAWAL") {
+            val goalId = newTransaction.goalId ?: throw IllegalArgumentException("GOAL_WITHDRAWAL must have a goalId")
+            val goal = goalDao.getGoalById(goalId) ?: throw IllegalArgumentException("Goal not found")
+            // calculate effectively available amount considering the old transaction
+            val currentlyAvailable = goal.currentAmount + if (oldTransaction.type == "GOAL_WITHDRAWAL" && oldTransaction.goalId == goalId) oldTransaction.amount else 0.0
+            if (newTransaction.amount > currentlyAvailable) {
+                throw IllegalArgumentException("Cannot withdraw more than goal current amount")
+            }
+        }
+
         // 1. Reverse previous transaction effect on account balances
         when (oldTransaction.type) {
             "EXPENSE" -> {
@@ -173,6 +211,11 @@ class FinanceRepository(private val db: AppDatabase) {
             }
             "TRANSFER" -> {
                 accountDao.updateBalance(oldTransaction.accountId, oldTransaction.amount)
+                oldTransaction.toAccountId?.let { toId ->
+                    accountDao.updateBalance(toId, -oldTransaction.amount)
+                }
+            }
+            "GOAL_WITHDRAWAL" -> {
                 oldTransaction.toAccountId?.let { toId ->
                     accountDao.updateBalance(toId, -oldTransaction.amount)
                 }
@@ -193,14 +236,23 @@ class FinanceRepository(private val db: AppDatabase) {
                     accountDao.updateBalance(toId, newTransaction.amount)
                 }
             }
+            "GOAL_WITHDRAWAL" -> {
+                newTransaction.toAccountId?.let { toId ->
+                    accountDao.updateBalance(toId, newTransaction.amount)
+                }
+            }
         }
 
         // 3. Reverse previous goal / debt effect
         oldTransaction.goalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
-                val sign = if (oldTransaction.type == "INCOME") -1 else 1
-                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (oldTransaction.amount * sign)))
+                if (oldTransaction.type == "GOAL_WITHDRAWAL") {
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + oldTransaction.amount))
+                } else {
+                    val sign = if (oldTransaction.type == "INCOME") -1 else 1
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (oldTransaction.amount * sign)))
+                }
             }
         }
         oldTransaction.debtId?.let { debtId ->
@@ -215,8 +267,12 @@ class FinanceRepository(private val db: AppDatabase) {
         newTransaction.goalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
-                val sign = if (newTransaction.type == "INCOME") -1 else 1
-                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (newTransaction.amount * sign)))
+                if (newTransaction.type == "GOAL_WITHDRAWAL") {
+                    goalDao.updateGoal(goal.copy(currentAmount = (goal.currentAmount - newTransaction.amount).coerceAtLeast(0.0)))
+                } else {
+                    val sign = if (newTransaction.type == "INCOME") -1 else 1
+                    goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (newTransaction.amount * sign)))
+                }
             }
         }
         newTransaction.debtId?.let { debtId ->

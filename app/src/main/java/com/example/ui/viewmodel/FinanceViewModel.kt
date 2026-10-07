@@ -288,6 +288,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 convertedAmount
             } else if (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics) {
                 convertedAmount
+            } else if (tx.type == "GOAL_WITHDRAWAL" && accInAnalytics && !toAccInAnalytics) {
+                convertedAmount
             } else {
                 0.0
             }
@@ -938,7 +940,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     timestamp = notification.timestamp,
                     note = finalNote,
                     tag = if (isZenmoney) "дзен-мани" else "банк-авто",
-                    excludeFromStats = (type == "TRANSFER")
+                    excludeFromStats = false
                 )
             )
             repository.markNotificationProcessed(notification.id)
@@ -1223,31 +1225,36 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun askGemini(promptType: AiPromptType, userQuestion: String? = null) {
+    fun askGemini(promptType: AiPromptType, userQuestion: String? = null, isRetry: Boolean = false) {
         val currentState = uiState.value
         if (!geminiPrefs.isApiKeyConfigured()) {
             _aiState.value = AiState.Error("Ключ Gemini API не настроен. Перейдите в Настройки и введите ваш ключ.", isApiKeyMissing = true)
             return
         }
 
-        val questionLabel = if (!userQuestion.isNullOrBlank()) {
-            userQuestion
-        } else {
-            "${promptType.iconEmoji} ${promptType.title}"
+        if (!isRetry) {
+            val questionLabel = if (!userQuestion.isNullOrBlank()) {
+                userQuestion
+            } else {
+                "${promptType.iconEmoji} ${promptType.title}"
+            }
+
+            val userMessage = AiMessage(
+                sender = MessageSender.USER,
+                text = questionLabel,
+                promptType = promptType
+            )
+
+            _aiMessages.value = _aiMessages.value + userMessage
+
+            viewModelScope.launch {
+                repository.saveAiMessage(userMessage)
+            }
         }
 
-        val userMessage = AiMessage(
-            sender = MessageSender.USER,
-            text = questionLabel,
-            promptType = promptType
-        )
-
-        _aiMessages.value = _aiMessages.value + userMessage
         _aiState.value = AiState.Loading
 
         viewModelScope.launch {
-            repository.saveAiMessage(userMessage)
-
             val result = geminiService.askAssistant(
                 promptType = promptType,
                 userQuestion = userQuestion,
@@ -1281,8 +1288,15 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"
                 val isKeyMissing = errorMsg.contains("не настроен", ignoreCase = true)
-                _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing)
+                _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing, failedPromptType = promptType, failedQuestion = userQuestion)
             }
+        }
+    }
+
+    fun retryGemini() {
+        val errorState = _aiState.value as? AiState.Error
+        if (errorState != null && errorState.failedPromptType != null) {
+            askGemini(errorState.failedPromptType, errorState.failedQuestion, isRetry = true)
         }
     }
     // Planned Transactions

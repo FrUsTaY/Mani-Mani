@@ -75,6 +75,7 @@ fun AddTransactionDialog(
         accountId: Long,
         toAccountId: Long?,
         categoryId: Long?,
+        timestamp: Long,
         note: String,
         tag: String,
         excludeFromStats: Boolean,
@@ -146,6 +147,34 @@ fun AddTransactionDialog(
     var tagText by remember { mutableStateOf(transactionToEdit?.tag ?: "") }
     var excludeFromStats by remember { mutableStateOf(transactionToEdit?.excludeFromStats ?: false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var selectedTimestamp by remember { mutableStateOf(transactionToEdit?.timestamp ?: System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val datePickerState = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = selectedTimestamp
+        )
+        androidx.compose.material3.DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        selectedTimestamp = it
+                    }
+                    showDatePicker = false
+                }) {
+                    androidx.compose.material3.Text("ОК")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showDatePicker = false }) {
+                    androidx.compose.material3.Text("Отмена")
+                }
+            }
+        ) {
+            androidx.compose.material3.DatePicker(state = datePickerState)
+        }
+    }
 
     // Smart Bank recommendation based on user rules
     val bankSuggestion = remember(selectedType, selectedCategoryId, noteText, bankOfTheMonth, activeAccounts, categories) {
@@ -743,6 +772,34 @@ fun AddTransactionDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Date picker trigger
+                val formatter = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault())
+                val dateString = formatter.format(java.util.Date(selectedTimestamp))
+                OutlinedTextField(
+                    value = dateString,
+                    onValueChange = { },
+                    label = { Text("Дата операции") },
+                    readOnly = true,
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Выбрать дату")
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker = true },
+                    enabled = false,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Note
                 OutlinedTextField(
                     value = noteText,
@@ -878,6 +935,7 @@ fun AddTransactionDialog(
                                 selectedAccountId,
                                 finalToAccountId,
                                 finalCategoryId,
+                                selectedTimestamp,
                                 noteText.trim(),
                                 tagText.trim(),
                                 excludeFromStats,

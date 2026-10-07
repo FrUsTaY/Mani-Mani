@@ -61,5 +61,5 @@ sealed interface AiState {
     object Idle : AiState
     object Loading : AiState
     data class Success(val responseText: String) : AiState
-    data class Error(val errorMessage: String, val isApiKeyMissing: Boolean = false) : AiState
+    data class Error(val errorMessage: String, val isApiKeyMissing: Boolean = false, val failedPromptType: AiPromptType? = null, val failedQuestion: String? = null) : AiState
 }
