@@ -157,20 +157,35 @@ class GeminiService(private val preferenceManager: GeminiPreferenceManager) {
                     contentsArray.put(contentObj)
                 }
 
-                // Current user turn
-                val currentTurnText = if (userQuestion.isNullOrBlank()) {
-                    promptType.systemPromptAction
+                // If the last message in history was the user message (like in a retry scenario), we modify it
+                // by prepending the system prompt action, rather than adding a brand new role turn.
+                if (contentsArray.length() > 0 && contentsArray.getJSONObject(contentsArray.length() - 1).getString("role") == "user") {
+                    val lastUserTurn = contentsArray.getJSONObject(contentsArray.length() - 1)
+                    val parts = lastUserTurn.getJSONArray("parts")
+                    val originalText = parts.getJSONObject(0).getString("text")
+                    // Instead of appending just the original user input, wrap it with the system prompt
+                    val modifiedText = if (originalText.startsWith(promptType.systemPromptAction)) {
+                        originalText
+                    } else {
+                        "${promptType.systemPromptAction}\n\nВопрос пользователя: $originalText"
+                    }
+                    parts.getJSONObject(0).put("text", modifiedText)
                 } else {
-                    "${promptType.systemPromptAction}\n\nВопрос пользователя: $userQuestion"
-                }
+                    // Current user turn
+                    val currentTurnText = if (userQuestion.isNullOrBlank()) {
+                        promptType.systemPromptAction
+                    } else {
+                        "${promptType.systemPromptAction}\n\nВопрос пользователя: $userQuestion"
+                    }
 
-                val currentContentObj = JSONObject().apply {
-                    put("role", "user")
-                    val parts = JSONArray()
-                    parts.put(JSONObject().apply { put("text", currentTurnText) })
-                    put("parts", parts)
+                    val currentContentObj = JSONObject().apply {
+                        put("role", "user")
+                        val parts = JSONArray()
+                        parts.put(JSONObject().apply { put("text", currentTurnText) })
+                        put("parts", parts)
+                    }
+                    contentsArray.put(currentContentObj)
                 }
-                contentsArray.put(currentContentObj)
 
                 put("contents", contentsArray)
 

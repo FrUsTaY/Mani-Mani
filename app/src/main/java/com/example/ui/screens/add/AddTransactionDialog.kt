@@ -153,15 +153,16 @@ fun AddTransactionDialog(
     var showDatePicker by remember { mutableStateOf(false) }
 
     if (showDatePicker) {
+        val timezoneOffset = java.util.TimeZone.getDefault().getOffset(selectedTimestamp)
         val datePickerState = androidx.compose.material3.rememberDatePickerState(
-            initialSelectedDateMillis = selectedTimestamp
+            initialSelectedDateMillis = selectedTimestamp + timezoneOffset
         )
         androidx.compose.material3.DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let {
-                        selectedTimestamp = it
+                        selectedTimestamp = it - java.util.TimeZone.getDefault().getOffset(it)
                     }
                     showDatePicker = false
                 }) {
