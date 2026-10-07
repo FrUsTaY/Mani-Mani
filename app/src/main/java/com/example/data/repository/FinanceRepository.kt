@@ -74,6 +74,7 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun addTransaction(transaction: TransactionEntity): Long {
         if (transaction.type == "GOAL_WITHDRAWAL") {
             val goalId = transaction.goalId ?: throw IllegalArgumentException("GOAL_WITHDRAWAL must have a goalId")
+            if (transaction.toAccountId == null) throw IllegalArgumentException("GOAL_WITHDRAWAL must have a toAccountId")
             val goal = goalDao.getGoalById(goalId) ?: throw IllegalArgumentException("Goal not found")
             if (transaction.amount > goal.currentAmount) {
                 throw IllegalArgumentException("Cannot withdraw more than goal current amount")
@@ -193,6 +194,7 @@ class FinanceRepository(private val db: AppDatabase) {
     ) {
         if (newTransaction.type == "GOAL_WITHDRAWAL") {
             val goalId = newTransaction.goalId ?: throw IllegalArgumentException("GOAL_WITHDRAWAL must have a goalId")
+            if (newTransaction.toAccountId == null) throw IllegalArgumentException("GOAL_WITHDRAWAL must have a toAccountId")
             val goal = goalDao.getGoalById(goalId) ?: throw IllegalArgumentException("Goal not found")
             // calculate effectively available amount considering the old transaction
             val currentlyAvailable = goal.currentAmount + if (oldTransaction.type == "GOAL_WITHDRAWAL" && oldTransaction.goalId == goalId) oldTransaction.amount else 0.0

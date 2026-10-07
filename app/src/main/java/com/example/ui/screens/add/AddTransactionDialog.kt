@@ -104,7 +104,9 @@ fun AddTransactionDialog(
 
     var selectedToAccountId by remember {
         mutableStateOf(
-            if (transactionToEdit?.goalId != null) 0L else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
+            if (transactionToEdit?.type == "GOAL_WITHDRAWAL") transactionToEdit.toAccountId ?: 0L
+            else if (transactionToEdit?.goalId != null) 0L
+            else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
         )
     }
 

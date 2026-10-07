@@ -288,8 +288,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 convertedAmount
             } else if (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics) {
                 convertedAmount
-            } else if (tx.type == "GOAL_WITHDRAWAL" && accInAnalytics && !toAccInAnalytics) {
-                convertedAmount
             } else {
                 0.0
             }
