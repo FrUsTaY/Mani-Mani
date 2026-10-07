@@ -243,6 +243,7 @@ fun AddTransactionDialog(
                         add(Triple("EXPENSE", "Расход", ExpenseRed))
                         add(Triple("INCOME", "Доход", IncomeGreen))
                         add(Triple("TRANSFER", "Перевод", TransferBlue))
+                        add(Triple("GOAL_WITHDRAWAL", "Из копилки", TransferBlue))
                         if (transactionToEdit != null) {
                             add(Triple("RECEIPT", "Чек", MaterialTheme.colorScheme.primary))
                         }
@@ -420,7 +421,7 @@ fun AddTransactionDialog(
 
                 // Source Account Selector
                 Text(
-                    text = if (selectedType == "TRANSFER") "Со счёта" else "Счёт",
+                    text = if (selectedType == "TRANSFER") "Со счёта" else if (selectedType == "GOAL_WITHDRAWAL") "Из копилки" else "Счёт",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -430,7 +431,45 @@ fun AddTransactionDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(accounts.filter { !it.isArchived }) { acc ->
+                                        if (selectedType == "GOAL_WITHDRAWAL") {
+                        items(goals) { goal ->
+                            val isSelected = goal.id == selectedGoalId
+                            val goalColor = IconHelper.parseColor(goal.colorHex)
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                                modifier = Modifier
+                                    .clickable { selectedGoalId = goal.id }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(goalColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = goal.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            text = CurrencyHelper.formatAmount(goal.currentAmount, "RUB"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        items(accounts.filter { !it.isArchived }) { acc ->
                         val isSelected = acc.id == selectedAccountId
                         val accColor = IconHelper.parseColor(acc.colorHex)
                         Surface(
@@ -467,10 +506,11 @@ fun AddTransactionDialog(
                             }
                         }
                     }
+                    }
                 }
 
                 // Target Account Selector (if TRANSFER)
-                AnimatedVisibility(visible = selectedType == "TRANSFER") {
+                AnimatedVisibility(visible = selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
                             text = "На счёт",
@@ -484,7 +524,9 @@ fun AddTransactionDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             // accounts
-                            items(accounts.filter { !it.isArchived && it.id != selectedAccountId }) { acc ->
+                            if (selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") {
+                            // accounts
+                            items(accounts.filter { !it.isArchived && (selectedType == "GOAL_WITHDRAWAL" || it.id != selectedAccountId) }) { acc ->
                                 val isSelected = acc.id == selectedToAccountId
                                 val accColor = IconHelper.parseColor(acc.colorHex)
                                 Surface(
@@ -519,6 +561,7 @@ fun AddTransactionDialog(
                                     }
                                 }
                             }
+                            if (selectedType == "TRANSFER") {
                             items(goals) { goal ->
                                 val isSelected = goal.id == selectedGoalId
                                 val goalColor = IconHelper.parseColor(goal.colorHex)
@@ -557,12 +600,14 @@ fun AddTransactionDialog(
                                     }
                                 }
                             }
+                            }
+                            }
                         }
                     }
                 }
 
                 // Category Selector (if not TRANSFER)
-                AnimatedVisibility(visible = selectedType != "TRANSFER") {
+                AnimatedVisibility(visible = selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL") {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
                             text = "Категория",
@@ -801,15 +846,31 @@ fun AddTransactionDialog(
                                 errorMessage = "Выберите счет зачисления или копилку"
                                 return@Button
                             }
-                            if (selectedType != "TRANSFER" && selectedCategoryId == null && selectedDebtId == null) {
+                            if (selectedType == "GOAL_WITHDRAWAL" && selectedGoalId == null) {
+                                errorMessage = "Выберите копилку списания"
+                                return@Button
+                            }
+                            if (selectedType == "GOAL_WITHDRAWAL" && (selectedToAccountId == null || selectedToAccountId == 0L)) {
+                                errorMessage = "Выберите счет зачисления"
+                                return@Button
+                            }
+                            if (selectedType == "GOAL_WITHDRAWAL" && selectedGoalId != null) {
+                                val goal = goals.find { it.id == selectedGoalId }
+                                val currentlyAvailable = (goal?.currentAmount ?: 0.0) + if (transactionToEdit?.type == "GOAL_WITHDRAWAL" && transactionToEdit.goalId == selectedGoalId) transactionToEdit.amount else 0.0
+                                if (goal != null && amount > currentlyAvailable) {
+                                    errorMessage = "Недостаточно средств в копилке"
+                                    return@Button
+                                }
+                            }
+                            if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL" && selectedCategoryId == null && selectedDebtId == null) {
                                 errorMessage = "Выберите категорию или долг"
                                 return@Button
                             }
 
                             // If transferring to a goal, toAccountId is null.
-                            val finalToAccountId = if (selectedType == "TRANSFER" && selectedGoalId == null) selectedToAccountId else null
+                            val finalToAccountId = if (selectedType == "TRANSFER" && selectedGoalId == null || selectedType == "GOAL_WITHDRAWAL") selectedToAccountId else null
                             // If it's a debt, categoryId is null.
-                            val finalCategoryId = if (selectedType != "TRANSFER" && selectedDebtId == null) selectedCategoryId else null
+                            val finalCategoryId = if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL" && selectedDebtId == null) selectedCategoryId else null
                             
                             onConfirm(
                                 selectedType,
@@ -820,8 +881,8 @@ fun AddTransactionDialog(
                                 noteText.trim(),
                                 tagText.trim(),
                                 excludeFromStats,
-                                if (selectedType == "TRANSFER") selectedGoalId else null,
-                                if (selectedType != "TRANSFER") selectedDebtId else null
+                                if (selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") selectedGoalId else null,
+                                if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL") selectedDebtId else null
                             )
                             onDismiss()
                         },
