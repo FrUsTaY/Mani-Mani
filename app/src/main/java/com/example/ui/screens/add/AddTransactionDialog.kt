@@ -908,7 +908,11 @@ fun AddTransactionDialog(
                                 errorMessage = "Введите корректную сумму больше нуля"
                                 return@Button
                             }
-                            if (selectedAccountId == 0L) {
+                            // If selectedType is TRANSFER and selectedAccountId == 0L, it means we selected Goal as the Source.
+                            // So we shouldn't throw "Выберите счёт списания".
+                            val isGoalWithdrawal = selectedType == "TRANSFER" && selectedAccountId == 0L && selectedGoalId != null
+
+                            if (selectedAccountId == 0L && !isGoalWithdrawal) {
                                 errorMessage = "Выберите счёт списания"
                                 return@Button
                             }
@@ -920,7 +924,11 @@ fun AddTransactionDialog(
                                 errorMessage = "Выберите счет зачисления или копилку"
                                 return@Button
                             }
-                            if (selectedType == "TRANSFER" && selectedAccountId == 0L && selectedGoalId != null) {
+                            if (isGoalWithdrawal) {
+                                if (selectedToAccountId == null || selectedToAccountId == 0L) {
+                                    errorMessage = "Выберите счет зачисления"
+                                    return@Button
+                                }
                                 val goal = goals.find { it.id == selectedGoalId }
                                 val currentlyAvailable = (goal?.currentAmount ?: 0.0) + if (transactionToEdit?.type == "GOAL_WITHDRAWAL" && transactionToEdit.goalId == selectedGoalId) transactionToEdit.amount else 0.0
                                 if (goal != null && amount > currentlyAvailable) {
@@ -934,7 +942,6 @@ fun AddTransactionDialog(
                             }
 
                             // Compute final parameters based on Source and Destination
-                            val isGoalWithdrawal = selectedType == "TRANSFER" && selectedAccountId == 0L && selectedGoalId != null
                             val finalType = if (isGoalWithdrawal) "GOAL_WITHDRAWAL" else selectedType
 
                             val finalAccountId = if (isGoalWithdrawal) {
