@@ -104,7 +104,7 @@ fun AddTransactionDialog(
 
     var selectedToAccountId by remember {
         mutableStateOf(
-            if (transactionToEdit?.type == "GOAL_WITHDRAWAL") transactionToEdit.toAccountId ?: activeAccounts.firstOrNull()?.id ?: 0L
+            if (transactionToEdit?.type == "GOAL_WITHDRAWAL") transactionToEdit.toAccountId ?: 0L
             else if (transactionToEdit?.goalId != null) 0L
             else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
         )
@@ -452,7 +452,7 @@ fun AddTransactionDialog(
 
                 // Source Account Selector
                 Text(
-                    text = if (selectedType == "TRANSFER") "Со счёта" else if (selectedType == "GOAL_WITHDRAWAL") "Из копилки" else "Счёт",
+                    text = if (selectedType == "TRANSFER") "Откуда" else "Счёт",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -462,16 +462,16 @@ fun AddTransactionDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                                        if (selectedType == "GOAL_WITHDRAWAL") {
+                    if (selectedType == "TRANSFER") {
                         items(goals) { goal ->
-                            val isSelected = goal.id == selectedGoalId
+                            val isSelected = goal.id == selectedGoalId && selectedAccountId == 0L
                             val goalColor = IconHelper.parseColor(goal.colorHex)
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                                 border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                                 modifier = Modifier
-                                    .clickable { selectedGoalId = goal.id }
+                                    .clickable { selectedGoalId = goal.id; selectedAccountId = 0L; selectedToAccountId = activeAccounts.firstOrNull()?.id ?: 0L }
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -479,10 +479,18 @@ fun AddTransactionDialog(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(10.dp)
+                                            .size(24.dp)
                                             .clip(CircleShape)
-                                            .background(goalColor)
-                                    )
+                                            .background(goalColor.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            IconHelper.getIconByName(goal.iconName),
+                                            contentDescription = null,
+                                            tint = goalColor,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
@@ -499,16 +507,23 @@ fun AddTransactionDialog(
                                 }
                             }
                         }
-                    } else {
-                        items(accounts.filter { !it.isArchived }) { acc ->
-                        val isSelected = acc.id == selectedAccountId
+                    }
+                    items(accounts.filter { !it.isArchived }) { acc ->
+                        // Account is selected if it's the active `selectedAccountId` and we're not currently withdrawing from a Goal
+                        val isSelected = acc.id == selectedAccountId && (selectedType != "TRANSFER" || selectedGoalId == null || selectedToAccountId == null)
                         val accColor = IconHelper.parseColor(acc.colorHex)
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                             border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                             modifier = Modifier
-                                .clickable { selectedAccountId = acc.id }
+                                .clickable {
+                                    selectedAccountId = acc.id
+                                    if (selectedType == "TRANSFER" && selectedGoalId != null && selectedToAccountId == null) {
+                                        // Reset destination if we switch from Goal -> Account to Account -> ?
+                                        selectedGoalId = null
+                                    }
+                                }
                                 .testTag("account_chip_${acc.id}")
                         ) {
                             Row(
@@ -541,10 +556,10 @@ fun AddTransactionDialog(
                 }
 
                 // Target Account Selector (if TRANSFER)
-                AnimatedVisibility(visible = selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") {
+                AnimatedVisibility(visible = selectedType == "TRANSFER") {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
-                            text = "На счёт",
+                            text = "Куда",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -638,7 +653,7 @@ fun AddTransactionDialog(
                 }
 
                 // Category Selector (if not TRANSFER)
-                AnimatedVisibility(visible = selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL") {
+                AnimatedVisibility(visible = selectedType != "TRANSFER") {
                     Column(modifier = Modifier.padding(top = 16.dp)) {
                         Text(
                             text = "Категория",
@@ -905,15 +920,7 @@ fun AddTransactionDialog(
                                 errorMessage = "Выберите счет зачисления или копилку"
                                 return@Button
                             }
-                            if (selectedType == "GOAL_WITHDRAWAL" && selectedGoalId == null) {
-                                errorMessage = "Выберите копилку списания"
-                                return@Button
-                            }
-                            if (selectedType == "GOAL_WITHDRAWAL" && (selectedToAccountId == null || selectedToAccountId == 0L)) {
-                                errorMessage = "Выберите счет зачисления"
-                                return@Button
-                            }
-                            if (selectedType == "GOAL_WITHDRAWAL" && selectedGoalId != null) {
+                            if (selectedType == "TRANSFER" && selectedAccountId == 0L && selectedGoalId != null) {
                                 val goal = goals.find { it.id == selectedGoalId }
                                 val currentlyAvailable = (goal?.currentAmount ?: 0.0) + if (transactionToEdit?.type == "GOAL_WITHDRAWAL" && transactionToEdit.goalId == selectedGoalId) transactionToEdit.amount else 0.0
                                 if (goal != null && amount > currentlyAvailable) {
@@ -921,28 +928,50 @@ fun AddTransactionDialog(
                                     return@Button
                                 }
                             }
-                            if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL" && selectedCategoryId == null && selectedDebtId == null) {
+                            if (selectedType != "TRANSFER" && selectedCategoryId == null && selectedDebtId == null) {
                                 errorMessage = "Выберите категорию или долг"
                                 return@Button
                             }
 
-                            // If transferring to a goal, toAccountId is null.
-                            val finalToAccountId = if (selectedType == "TRANSFER" && selectedGoalId == null || selectedType == "GOAL_WITHDRAWAL") selectedToAccountId else null
+                            // Compute final parameters based on Source and Destination
+                            val isGoalWithdrawal = selectedType == "TRANSFER" && selectedAccountId == 0L && selectedGoalId != null
+                            val finalType = if (isGoalWithdrawal) "GOAL_WITHDRAWAL" else selectedType
+
+                            val finalAccountId = if (isGoalWithdrawal) {
+                                // For GOAL_WITHDRAWAL, accountId must be the destination account ID
+                                // (in our DB logic, or we use destination as toAccountId and a dummy accountId,
+                                // but repository uses toAccountId)
+                                // We'll just pass selectedToAccountId for both or pass the active account for accountId
+                                activeAccounts.firstOrNull()?.id ?: 0L
+                            } else {
+                                selectedAccountId
+                            }
+
+                            val finalToAccountId = if (isGoalWithdrawal) {
+                                selectedToAccountId
+                            } else if (selectedType == "TRANSFER" && selectedGoalId == null) {
+                                selectedToAccountId
+                            } else {
+                                null // transferring to a goal
+                            }
+
                             // If it's a debt, categoryId is null.
-                            val finalCategoryId = if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL" && selectedDebtId == null) selectedCategoryId else null
+                            val finalCategoryId = if (selectedType != "TRANSFER" && selectedDebtId == null) selectedCategoryId else null
                             
+                            val finalGoalId = if (selectedType == "TRANSFER" || isGoalWithdrawal) selectedGoalId else null
+
                             onConfirm(
-                                selectedType,
+                                finalType,
                                 amount,
-                                selectedAccountId,
+                                finalAccountId,
                                 finalToAccountId,
                                 finalCategoryId,
                                 selectedTimestamp,
                                 noteText.trim(),
                                 tagText.trim(),
                                 excludeFromStats,
-                                if (selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") selectedGoalId else null,
-                                if (selectedType != "TRANSFER" && selectedType != "GOAL_WITHDRAWAL") selectedDebtId else null
+                                finalGoalId,
+                                if (selectedType != "TRANSFER") selectedDebtId else null
                             )
                             onDismiss()
                         },
@@ -965,7 +994,6 @@ fun AddTransactionDialog(
                             fontSize = 16.sp
                         )
                     }
-                }
                 }
             }
         }
