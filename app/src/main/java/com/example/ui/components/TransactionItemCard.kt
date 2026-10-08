@@ -73,9 +73,16 @@ fun TransactionItemCard(
         else -> {
             val iconVec = if (goal != null) IconHelper.getIconByName(goal.iconName) else Icons.AutoMirrored.Filled.CompareArrows
             val color = if (goal != null) IconHelper.parseColor(goal.colorHex) else TransferBlue
-            val fromName = account?.name ?: "Счёт"
-            val toName = if (goal != null) "🎯 ${goal.name}" else toAccount?.name ?: "Счёт"
-            val dispTitle = if (goal != null) "В копилку" else "Перевод"
+
+            val dispTitle = if (goal != null) {
+                if (transaction.type == "GOAL_WITHDRAWAL") "Из копилки: ${goal.name}" else "В копилку: ${goal.name}"
+            } else {
+                "Перевод"
+            }
+
+            val fromName = if (transaction.type == "GOAL_WITHDRAWAL" && goal != null) "🎯 ${goal.name}" else account?.name ?: "Счёт"
+            val toName = if (transaction.type == "TRANSFER" && goal != null) "🎯 ${goal.name}" else toAccount?.name ?: "Счёт"
+
             Quad(iconVec, color, dispTitle, "$fromName → $toName")
         }
     }
@@ -167,7 +174,7 @@ fun TransactionItemCard(
                                 border = androidx.compose.foundation.BorderStroke(1.dp, goalColor.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = "🎯 В копилку: ${goal.name}",
+                                    text = if (transaction.type == "GOAL_WITHDRAWAL") "🎯 Из копилки: ${goal.name}" else "🎯 В копилку: ${goal.name}",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,

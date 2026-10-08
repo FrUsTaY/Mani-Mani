@@ -61,7 +61,7 @@ fun TransactionsScreen(
             val matchesType = when (selectedTypeFilter) {
                 "EXPENSE" -> tx.type == "EXPENSE"
                 "INCOME" -> tx.type == "INCOME"
-                "TRANSFER" -> tx.type == "TRANSFER"
+                "TRANSFER" -> tx.type == "TRANSFER" || tx.type == "GOAL_WITHDRAWAL"
                 else -> true
             }
 

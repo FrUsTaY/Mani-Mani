@@ -553,14 +553,14 @@ fun AiMessageCard(
     ) {
         if (isUser) {
             Surface(
-                color = MaterialTheme.colorScheme.primary,
+                color = Color(0xFFE3F2FD),
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
                 modifier = Modifier.widthIn(max = 300.dp)
             ) {
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(
                         text = message.text,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = Color.Black,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                     )

@@ -104,7 +104,7 @@ fun AddTransactionDialog(
 
     var selectedToAccountId by remember {
         mutableStateOf(
-            if (transactionToEdit?.type == "GOAL_WITHDRAWAL") transactionToEdit.toAccountId ?: 0L
+            if (transactionToEdit?.type == "GOAL_WITHDRAWAL") transactionToEdit.toAccountId ?: activeAccounts.firstOrNull()?.id ?: 0L
             else if (transactionToEdit?.goalId != null) 0L
             else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
         )
@@ -275,7 +275,6 @@ fun AddTransactionDialog(
                         add(Triple("EXPENSE", "Расход", ExpenseRed))
                         add(Triple("INCOME", "Доход", IncomeGreen))
                         add(Triple("TRANSFER", "Перевод", TransferBlue))
-                        add(Triple("GOAL_WITHDRAWAL", "Из копилки", TransferBlue))
                         if (transactionToEdit != null) {
                             add(Triple("RECEIPT", "Чек", MaterialTheme.colorScheme.primary))
                         }
