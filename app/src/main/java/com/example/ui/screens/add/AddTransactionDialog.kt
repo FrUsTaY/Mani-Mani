@@ -510,7 +510,7 @@ fun AddTransactionDialog(
                     }
                     items(accounts.filter { !it.isArchived }) { acc ->
                         // Account is selected if it's the active `selectedAccountId` and we're not currently withdrawing from a Goal
-                        val isSelected = acc.id == selectedAccountId && (selectedType != "TRANSFER" || selectedGoalId == null || selectedToAccountId == null)
+                        val isSelected = acc.id == selectedAccountId && (selectedType != "TRANSFER" || selectedGoalId == null || selectedToAccountId != 0L)
                         val accColor = IconHelper.parseColor(acc.colorHex)
                         Surface(
                             shape = RoundedCornerShape(14.dp),
@@ -519,7 +519,7 @@ fun AddTransactionDialog(
                             modifier = Modifier
                                 .clickable {
                                     selectedAccountId = acc.id
-                                    if (selectedType == "TRANSFER" && selectedGoalId != null && selectedToAccountId == null) {
+                                    if (selectedType == "TRANSFER" && selectedGoalId != null && selectedToAccountId == 0L) {
                                         // Reset destination if we switch from Goal -> Account to Account -> ?
                                         selectedGoalId = null
                                     }
@@ -569,84 +569,94 @@ fun AddTransactionDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // accounts
-                            if (selectedType == "TRANSFER" || selectedType == "GOAL_WITHDRAWAL") {
-                            // accounts
-                            items(accounts.filter { !it.isArchived && (selectedType == "GOAL_WITHDRAWAL" || it.id != selectedAccountId) }) { acc ->
-                                val isSelected = acc.id == selectedToAccountId
-                                val accColor = IconHelper.parseColor(acc.colorHex)
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary) else null,
-                                    modifier = Modifier.clickable { selectedToAccountId = acc.id; selectedGoalId = null }
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .clip(CircleShape)
-                                                .background(accColor)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                text = acc.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                            Text(
-                                                text = CurrencyHelper.formatAmount(acc.balance, acc.currency),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                             if (selectedType == "TRANSFER") {
-                            items(goals) { goal ->
-                                val isSelected = goal.id == selectedGoalId
-                                val goalColor = IconHelper.parseColor(goal.colorHex)
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary) else null,
-                                    modifier = Modifier.clickable { 
-                                        selectedToAccountId = 0L 
-                                        selectedGoalId = goal.id 
-                                    }
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .clip(CircleShape)
-                                                .background(goalColor)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                text = "Копилка: " + goal.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                            Text(
-                                                text = CurrencyHelper.formatAmount(goal.currentAmount, "RUB"),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                // If source is a Goal, destination can ONLY be an Account
+                                val sourceIsGoal = selectedGoalId != null && selectedAccountId == 0L
+
+                                if (!sourceIsGoal) {
+                                    items(goals) { goal ->
+                                        val isSelected = goal.id == selectedGoalId && selectedToAccountId == 0L
+                                        val goalColor = IconHelper.parseColor(goal.colorHex)
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary) else null,
+                                            modifier = Modifier.clickable { selectedGoalId = goal.id; selectedToAccountId = 0L }
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                        .clip(CircleShape)
+                                                        .background(goalColor.copy(alpha = 0.2f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        IconHelper.getIconByName(goal.iconName),
+                                                        contentDescription = null,
+                                                        tint = goalColor,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column {
+                                                    Text(
+                                                        text = goal.name,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                    Text(
+                                                        text = CurrencyHelper.formatAmount(goal.currentAmount, "RUB"),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            }
+
+                                items(accounts.filter { !it.isArchived && (sourceIsGoal || it.id != selectedAccountId) }) { acc ->
+                                    val isSelected = acc.id == selectedToAccountId
+                                    val accColor = IconHelper.parseColor(acc.colorHex)
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary) else null,
+                                        modifier = Modifier.clickable {
+                                            selectedToAccountId = acc.id
+                                            if (!sourceIsGoal) selectedGoalId = null
+                                        }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .clip(CircleShape)
+                                                    .background(accColor)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = acc.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    text = CurrencyHelper.formatAmount(acc.balance, acc.currency),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
