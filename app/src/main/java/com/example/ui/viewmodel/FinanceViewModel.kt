@@ -1230,7 +1230,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun askGemini(promptType: AiPromptType, userQuestion: String? = null) {
-        val currentState = uiState.value
         if (!geminiPrefs.isApiKeyConfigured()) {
             _aiState.value = AiState.Error("Ключ Gemini API не настроен. Перейдите в Настройки и введите ваш ключ.", isApiKeyMissing = true)
             return
@@ -1253,42 +1252,67 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             repository.saveAiMessage(userMessage)
+            executeGeminiRequest(promptType, userQuestion)
+        }
+    }
 
-            val result = geminiService.askAssistant(
-                promptType = promptType,
-                userQuestion = userQuestion,
-                accounts = currentState.accounts,
-                categories = currentState.categories,
-                transactions = currentState.transactions,
-                budgets = currentState.budgetProgresses,
-                goals = currentState.goals,
-                debts = currentState.debts,
-                baseCurrency = currentState.baseCurrency,
-                monthlyIncome = currentState.monthlyIncome,
-                monthlyExpense = currentState.monthlyExpense,
-                categorySpendings = currentState.categorySpendings,
-                conversationHistory = _aiMessages.value,
-                payday = currentState.payday,
-                paydayPeriodLabel = currentState.paydayPeriodLabel,
-                daysUntilPayday = currentState.daysUntilPayday,
-                bankOfTheMonth = currentState.bankOfTheMonth
+    fun retryLastAiRequest() {
+        val lastMessage = _aiMessages.value.lastOrNull()
+        if (lastMessage == null || lastMessage.sender != MessageSender.USER) {
+            _statusMessage.value = "Нет сообщения для повтора"
+            return
+        }
+
+        if (!geminiPrefs.isApiKeyConfigured()) {
+            _aiState.value = AiState.Error("Ключ Gemini API не настроен. Перейдите в Настройки и введите ваш ключ.", isApiKeyMissing = true)
+            return
+        }
+
+        _aiState.value = AiState.Loading
+
+        viewModelScope.launch {
+            val userQuestion = if (lastMessage.promptType == AiPromptType.CUSTOM) lastMessage.text else null
+            val promptType = lastMessage.promptType ?: AiPromptType.CUSTOM
+            executeGeminiRequest(promptType, userQuestion)
+        }
+    }
+
+    private suspend fun executeGeminiRequest(promptType: AiPromptType, userQuestion: String?) {
+        val currentState = uiState.value
+        val result = geminiService.askAssistant(
+            promptType = promptType,
+            userQuestion = userQuestion,
+            accounts = currentState.accounts,
+            categories = currentState.categories,
+            transactions = currentState.transactions,
+            budgets = currentState.budgetProgresses,
+            goals = currentState.goals,
+            debts = currentState.debts,
+            baseCurrency = currentState.baseCurrency,
+            monthlyIncome = currentState.monthlyIncome,
+            monthlyExpense = currentState.monthlyExpense,
+            categorySpendings = currentState.categorySpendings,
+            conversationHistory = _aiMessages.value,
+            payday = currentState.payday,
+            paydayPeriodLabel = currentState.paydayPeriodLabel,
+            daysUntilPayday = currentState.daysUntilPayday,
+            bankOfTheMonth = currentState.bankOfTheMonth
+        )
+
+        if (result.isSuccess) {
+            val answer = result.getOrNull() ?: ""
+            val assistantMessage = AiMessage(
+                sender = MessageSender.ASSISTANT,
+                text = answer,
+                promptType = promptType
             )
-
-            if (result.isSuccess) {
-                val answer = result.getOrNull() ?: ""
-                val assistantMessage = AiMessage(
-                    sender = MessageSender.ASSISTANT,
-                    text = answer,
-                    promptType = promptType
-                )
-                _aiMessages.value = _aiMessages.value + assistantMessage
-                repository.saveAiMessage(assistantMessage)
-                _aiState.value = AiState.Success(answer)
-            } else {
-                val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"
-                val isKeyMissing = errorMsg.contains("не настроен", ignoreCase = true)
-                _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing)
-            }
+            _aiMessages.value = _aiMessages.value + assistantMessage
+            repository.saveAiMessage(assistantMessage)
+            _aiState.value = AiState.Success(answer)
+        } else {
+            val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"
+            val isKeyMissing = errorMsg.contains("не настроен", ignoreCase = true)
+            _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing)
         }
     }
     // Planned Transactions

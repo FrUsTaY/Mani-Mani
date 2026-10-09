@@ -46,6 +46,7 @@ fun GeminiAssistantScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
     onAskGemini: (AiPromptType, String?) -> Unit,
+    onRetryAiRequest: () -> Unit,
     onClearChat: () -> Unit,
     onUpdateInputText: (String) -> Unit,
     onSaveApiKey: (String) -> Unit,
@@ -343,15 +344,36 @@ fun GeminiAssistantScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onErrorContainer
                                     )
-                                    if (errorState.isApiKeyMissing) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Button(
-                                            onClick = { showApiKeyDialog = true },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.error
-                                            )
-                                        ) {
-                                            Text("Настроить API ключ", color = MaterialTheme.colorScheme.onError)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (errorState.isApiKeyMissing) {
+                                            Button(
+                                                onClick = { showApiKeyDialog = true },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.error
+                                                )
+                                            ) {
+                                                Text("Настроить API ключ", color = MaterialTheme.colorScheme.onError)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = onRetryAiRequest,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.error
+                                                ),
+                                                modifier = Modifier.testTag("retry_ai_button")
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = "Повторить",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Повторить", color = MaterialTheme.colorScheme.onError)
+                                            }
                                         }
                                     }
                                 }
