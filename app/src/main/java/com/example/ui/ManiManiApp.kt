@@ -362,13 +362,14 @@ fun ManiManiApp(
             bankOfTheMonth = state.bankOfTheMonth,
             onDismiss = { showAddTransactionDialog = false },
             onManageCategories = { showManageCategoriesDialog = true },
-            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId ->
+            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId, timestamp ->
                 viewModel.addTransaction(
                     type = type,
                     amount = amount,
                     accountId = accId,
                     toAccountId = toAccId,
                     categoryId = catId,
+                    timestamp = timestamp,
                     note = note,
                     tag = tag,
                     excludeFromStats = exclude,
@@ -408,13 +409,14 @@ fun ManiManiApp(
                 transactionToEdit = null
             },
             onManageCategories = { showManageCategoriesDialog = true },
-            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId ->
+            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId, timestamp ->
                 val updated = txToEdit.copy(
                     type = type,
                     amount = amount,
                     accountId = accId,
                     toAccountId = toAccId,
                     categoryId = catId,
+                    timestamp = timestamp,
                     note = note,
                     tag = tag,
                     excludeFromStats = exclude,

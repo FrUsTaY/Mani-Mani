@@ -79,7 +79,8 @@ fun AddTransactionDialog(
         tag: String,
         excludeFromStats: Boolean,
         goalId: Long?,
-        debtId: Long?
+        debtId: Long?,
+        timestamp: Long
     ) -> Unit
 ) {
     val activeAccounts = remember(accounts) { accounts.filter { !it.isArchived } }
@@ -145,7 +146,45 @@ fun AddTransactionDialog(
     var noteText by remember { mutableStateOf(transactionToEdit?.note ?: "") }
     var tagText by remember { mutableStateOf(transactionToEdit?.tag ?: "") }
     var excludeFromStats by remember { mutableStateOf(transactionToEdit?.excludeFromStats ?: false) }
+    var customTimestamp by remember { mutableStateOf<Long?>(transactionToEdit?.timestamp) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    val showTimePicker = {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = customTimestamp ?: System.currentTimeMillis()
+        android.app.TimePickerDialog(
+            context,
+            { _, hourOfDay, minute ->
+                cal.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
+                cal.set(java.util.Calendar.MINUTE, minute)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                customTimestamp = cal.timeInMillis
+            },
+            cal.get(java.util.Calendar.HOUR_OF_DAY),
+            cal.get(java.util.Calendar.MINUTE),
+            true
+        ).show()
+    }
+
+    val showDatePicker = {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = customTimestamp ?: System.currentTimeMillis()
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                cal.set(java.util.Calendar.YEAR, year)
+                cal.set(java.util.Calendar.MONTH, month)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, dayOfMonth)
+                customTimestamp = cal.timeInMillis
+                showTimePicker()
+            },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
+    }
 
     // Smart Bank recommendation based on user rules
     val bankSuggestion = remember(selectedType, selectedCategoryId, noteText, bankOfTheMonth, activeAccounts, categories) {
@@ -698,6 +737,36 @@ fun AddTransactionDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Date Picker
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker() }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = "Выбрать дату",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Дата и время",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (customTimestamp != null) com.example.ui.util.DateHelper.formatDate(customTimestamp!!) else "Текущая дата и время",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
                 // Note
                 OutlinedTextField(
                     value = noteText,
@@ -821,7 +890,8 @@ fun AddTransactionDialog(
                                 tagText.trim(),
                                 excludeFromStats,
                                 if (selectedType == "TRANSFER") selectedGoalId else null,
-                                if (selectedType != "TRANSFER") selectedDebtId else null
+                                if (selectedType != "TRANSFER") selectedDebtId else null,
+                                customTimestamp ?: System.currentTimeMillis()
                             )
                             onDismiss()
                         },
