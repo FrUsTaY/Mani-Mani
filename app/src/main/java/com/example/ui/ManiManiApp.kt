@@ -161,6 +161,7 @@ fun ManiManiApp(
                     state = state,
                     onBack = { showGeminiAssistantScreen = false },
                     onAskGemini = { type, question -> viewModel.askGemini(type, question) },
+                    onRetryAiRequest = { viewModel.retryLastAiRequest() },
                     onClearChat = { viewModel.clearAiChat() },
                     onUpdateInputText = { viewModel.updateAiInputText(it) },
                     onSaveApiKey = { viewModel.saveGeminiApiKey(it) },
