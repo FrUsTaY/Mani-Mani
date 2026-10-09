@@ -944,7 +944,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     timestamp = notification.timestamp,
                     note = finalNote,
                     tag = if (isZenmoney) "дзен-мани" else "банк-авто",
-                    excludeFromStats = (type == "TRANSFER")
+                    excludeFromStats = false
                 )
             )
             repository.markNotificationProcessed(notification.id)
