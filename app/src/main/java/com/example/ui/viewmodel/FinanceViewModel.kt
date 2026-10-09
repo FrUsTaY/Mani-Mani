@@ -524,7 +524,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         tag: String = "",
         excludeFromStats: Boolean = false,
         goalId: Long? = null,
-        debtId: Long? = null
+        debtId: Long? = null,
+        fromGoalId: Long? = null,
+        toGoalId: Long? = null
     ) {
         viewModelScope.launch {
             repository.addTransaction(
@@ -539,7 +541,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     tag = tag,
                     excludeFromStats = excludeFromStats,
                     goalId = goalId,
-                    debtId = debtId
+                    debtId = debtId,
+                    fromGoalId = fromGoalId,
+                    toGoalId = toGoalId
                 )
             )
             _statusMessage.value = "Операция успешно добавлена"
@@ -838,6 +842,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     accountId = accountId,
                     toAccountId = null,
                     goalId = goalId,
+                    toGoalId = goalId,
                     timestamp = System.currentTimeMillis(),
                     note = "Пополнение: $goalName",
                     tag = "копилка,цель",
@@ -935,6 +940,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     toAccountId = if (type == "TRANSFER") toAccountId else null,
                     categoryId = if (type != "TRANSFER") categoryId else null,
                     goalId = if (type == "TRANSFER") goalId else null,
+                    toGoalId = if (type == "TRANSFER") goalId else null,
                     timestamp = notification.timestamp,
                     note = finalNote,
                     tag = if (isZenmoney) "дзен-мани" else "банк-авто",
