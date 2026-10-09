@@ -45,7 +45,9 @@ data class TransactionEntity(
     val tag: String = "",
     val excludeFromStats: Boolean = false,
     val goalId: Long? = null,
-    val debtId: Long? = null
+    val debtId: Long? = null,
+    val fromGoalId: Long? = null,
+    val toGoalId: Long? = null
 )
 
 @Entity(tableName = "budgets")
@@ -92,7 +94,9 @@ data class PlannedTransactionEntity(
     val categoryId: Long? = null,
     val plannedDate: Long,
     val note: String = "",
-    val reminderType: String = "NONE"
+    val reminderType: String = "NONE",
+    val fromGoalId: Long? = null,
+    val toGoalId: Long? = null
 )
 
 @Entity(tableName = "ai_messages")
