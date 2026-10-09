@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
         ReceiptEntity::class,
         ReceiptItemEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
