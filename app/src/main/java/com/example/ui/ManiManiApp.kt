@@ -161,6 +161,7 @@ fun ManiManiApp(
                     state = state,
                     onBack = { showGeminiAssistantScreen = false },
                     onAskGemini = { type, question -> viewModel.askGemini(type, question) },
+                    onRetryAiRequest = { viewModel.retryLastAiRequest() },
                     onClearChat = { viewModel.clearAiChat() },
                     onUpdateInputText = { viewModel.updateAiInputText(it) },
                     onSaveApiKey = { viewModel.saveGeminiApiKey(it) },
@@ -205,7 +206,7 @@ fun ManiManiApp(
                             returnToNotificationSettingsFromBankSync = false
                         }
                     },
-                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, type, note ->
+                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, debtId, type, note ->
                         viewModel.confirmPendingNotification(notif, accId, catId, toAccId, goalId, type, note)
                     },
                     onDismissNotification = { notif ->
@@ -362,18 +363,21 @@ fun ManiManiApp(
             bankOfTheMonth = state.bankOfTheMonth,
             onDismiss = { showAddTransactionDialog = false },
             onManageCategories = { showManageCategoriesDialog = true },
-            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId ->
+            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId, timestamp, fromGoalId, toGoalId ->
                 viewModel.addTransaction(
                     type = type,
                     amount = amount,
                     accountId = accId,
                     toAccountId = toAccId,
                     categoryId = catId,
+                    timestamp = timestamp,
                     note = note,
                     tag = tag,
                     excludeFromStats = exclude,
                     goalId = goalId,
-                    debtId = debtId
+                    debtId = debtId,
+                    fromGoalId = fromGoalId,
+                    toGoalId = toGoalId
                 )
             }
         )
@@ -408,18 +412,21 @@ fun ManiManiApp(
                 transactionToEdit = null
             },
             onManageCategories = { showManageCategoriesDialog = true },
-            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId ->
+            onConfirm = { type, amount, accId, toAccId, catId, note, tag, exclude, goalId, debtId, timestamp, fromGoalId, toGoalId ->
                 val updated = txToEdit.copy(
                     type = type,
                     amount = amount,
                     accountId = accId,
                     toAccountId = toAccId,
                     categoryId = catId,
+                    timestamp = timestamp,
                     note = note,
                     tag = tag,
                     excludeFromStats = exclude,
                     goalId = goalId,
-                    debtId = debtId
+                    debtId = debtId,
+                    fromGoalId = fromGoalId,
+                    toGoalId = toGoalId
                 )
                 viewModel.updateTransaction(txToEdit, updated)
                 transactionToEdit = null
