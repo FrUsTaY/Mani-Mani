@@ -206,7 +206,7 @@ fun ManiManiApp(
                             returnToNotificationSettingsFromBankSync = false
                         }
                     },
-                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, type, note ->
+                    onConfirmNotification = { notif, accId, catId, toAccId, goalId, debtId, type, note ->
                         viewModel.confirmPendingNotification(notif, accId, catId, toAccId, goalId, type, note)
                     },
                     onDismissNotification = { notif ->

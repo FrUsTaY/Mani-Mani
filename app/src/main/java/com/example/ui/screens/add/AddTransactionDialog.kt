@@ -782,6 +782,7 @@ fun AddTransactionDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (selectedType != "RECEIPT") {
                 // Date Picker
                 Row(
                     modifier = Modifier
@@ -811,7 +812,9 @@ fun AddTransactionDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Note
                 OutlinedTextField(
                     value = noteText,
@@ -831,7 +834,9 @@ fun AddTransactionDialog(
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Tag
                 OutlinedTextField(
                     value = tagText,
@@ -851,7 +856,9 @@ fun AddTransactionDialog(
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Exclude switch
                 Row(
                     modifier = Modifier
@@ -880,7 +887,9 @@ fun AddTransactionDialog(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -974,6 +983,7 @@ fun AddTransactionDialog(
                             fontSize = 16.sp
                         )
                     }
+                }
                 }
                 }
             }
