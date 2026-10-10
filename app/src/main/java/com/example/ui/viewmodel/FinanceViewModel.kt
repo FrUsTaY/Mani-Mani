@@ -294,25 +294,63 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
 
         // 3. Category spending breakdown
-        val expenseTx = thisMonthTransactions.filter { it.type == "EXPENSE" }
-        val catMap = categories.associateBy { it.id }
-        val spendingByCat = mutableMapOf<Long, Double>()
-        expenseTx.forEach { tx ->
-            val catId = tx.categoryId ?: -1L
+        val expenseTx = thisMonthTransactions.filter { tx ->
             val acc = accounts.find { it.id == tx.accountId }
+            val toAcc = accounts.find { it.id == tx.toAccountId }
+            val accInAnalytics = acc?.includeInAnalytics ?: true
+            val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+
+            val isExpense = tx.type == "EXPENSE" && accInAnalytics
+            val isTransferOut = tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics
+            isExpense || isTransferOut
+        }
+        val catMap = categories.associateBy { it.id }
+        val spendingByCat = mutableMapOf<String, Double>()
+        expenseTx.forEach { tx ->
+            val acc = accounts.find { it.id == tx.accountId }
+            val toAcc = accounts.find { it.id == tx.toAccountId }
+            val accInAnalytics = acc?.includeInAnalytics ?: true
+            val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+            val isTransferOut = tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics
+
             val curr = acc?.currency ?: config.baseCurrency
             val convertedAmount = CurrencyHelper.convert(tx.amount, curr, config.baseCurrency)
-            spendingByCat[catId] = (spendingByCat[catId] ?: 0.0) + convertedAmount
+
+            val key = when {
+                tx.debtId != null -> "debt_${tx.debtId}"
+                tx.categoryId != null -> "cat_${tx.categoryId}"
+                isTransferOut -> "transfer_out"
+                else -> "uncategorized"
+            }
+            spendingByCat[key] = (spendingByCat[key] ?: 0.0) + convertedAmount
         }
 
-        val categorySpendings = spendingByCat.mapNotNull { (catId, amount) ->
-            val cat = catMap[catId] ?: CategoryEntity(
-                id = -1,
-                name = "Без категории",
-                type = "EXPENSE",
-                iconName = "more_horiz",
-                colorHex = "#94A3B8"
-            )
+        val debtsMap = debts.associateBy { it.id }
+        val categorySpendings = spendingByCat.mapNotNull { (key, amount) ->
+            val cat = when {
+                key.startsWith("debt_") -> {
+                    val debtId = key.removePrefix("debt_").toLongOrNull()
+                    val debt = debtsMap[debtId]
+                    val debtName = debt?.personName ?: "Неизвестный долг"
+                    CategoryEntity(
+                        id = -(debtId ?: 1L) - 100000L,
+                        name = "Долг: $debtName",
+                        iconName = "money_off",
+                        colorHex = "#F44336",
+                        type = "EXPENSE"
+                    )
+                }
+                key.startsWith("cat_") -> {
+                    val catId = key.removePrefix("cat_").toLongOrNull() ?: -1L
+                    catMap[catId] ?: CategoryEntity(id = -1L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+                key == "transfer_out" -> {
+                    CategoryEntity(id = -2L, name = "Переводы", iconName = "swap_horiz", colorHex = "#9E9E9E", type = "EXPENSE")
+                }
+                else -> {
+                    CategoryEntity(id = -3L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+            }
             val pct = if (monthlyExpense > 0) (amount / monthlyExpense).toFloat() else 0f
             CategorySpending(cat, amount, pct)
         }.sortedByDescending { it.totalAmount }
@@ -324,7 +362,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             val spent = if (budget.categoryId == null) {
                 monthlyExpense
             } else {
-                spendingByCat[budget.categoryId] ?: 0.0
+                spendingByCat["cat_${budget.categoryId}"] ?: 0.0
             }
             val percent = if (budget.limitAmount > 0) (spent / budget.limitAmount).toFloat() else 0f
             BudgetProgress(
