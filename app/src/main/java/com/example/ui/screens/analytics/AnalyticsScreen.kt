@@ -149,7 +149,8 @@ fun AnalyticsScreen(
         state.transactions,
         state.accounts,
         state.categories,
-        state.baseCurrency
+        state.baseCurrency,
+        debtsMap
     ) {
         val txs = state.transactions.filter {
             it.timestamp in periodStartTime..periodEndTime && !it.excludeFromStats
@@ -189,7 +190,7 @@ fun AnalyticsScreen(
         }
 
         val catMap = state.categories.associateBy { it.id }
-        val spendMap = mutableMapOf<Long, Double>()
+        val spendMap = mutableMapOf<String, Double>()
         txs.forEach { tx ->
             val acc = state.accounts.find { it.id == tx.accountId }
             val toAcc = state.accounts.find { it.id == tx.toAccountId }
@@ -201,13 +202,41 @@ fun AnalyticsScreen(
             val isTransferOut = tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics
 
             if (isExpense || isTransferOut) {
-                val catId = tx.categoryId ?: -1L
-                spendMap[catId] = (spendMap[catId] ?: 0.0) + convertedAmount
+                val key = when {
+                    tx.debtId != null -> "debt_${tx.debtId}"
+                    tx.categoryId != null -> "cat_${tx.categoryId}"
+                    isTransferOut -> "transfer_out"
+                    else -> "uncategorized"
+                }
+                spendMap[key] = (spendMap[key] ?: 0.0) + convertedAmount
             }
         }
 
-        val spendings = spendMap.mapNotNull { (catId, amount) ->
-            val cat = catMap[catId] ?: com.example.data.entity.CategoryEntity(id = -1L, name = "Переводы", iconName = "swap_horiz", colorHex = "#9E9E9E", type = "EXPENSE")
+        val spendings = spendMap.mapNotNull { (key, amount) ->
+            val cat = when {
+                key.startsWith("debt_") -> {
+                    val debtId = key.removePrefix("debt_").toLongOrNull()
+                    val debt = debtsMap[debtId]
+                    val debtName = debt?.personName ?: "Неизвестный долг"
+                    com.example.data.entity.CategoryEntity(
+                        id = -(debtId ?: 1L) - 100000L,
+                        name = "Долг: $debtName",
+                        iconName = "money_off",
+                        colorHex = "#F44336",
+                        type = "EXPENSE"
+                    )
+                }
+                key.startsWith("cat_") -> {
+                    val catId = key.removePrefix("cat_").toLongOrNull() ?: -1L
+                    catMap[catId] ?: com.example.data.entity.CategoryEntity(id = -1L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+                key == "transfer_out" -> {
+                    com.example.data.entity.CategoryEntity(id = -2L, name = "Переводы", iconName = "swap_horiz", colorHex = "#9E9E9E", type = "EXPENSE")
+                }
+                else -> {
+                    com.example.data.entity.CategoryEntity(id = -3L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+            }
             val pct = if (exp > 0) (amount / exp).toFloat() else 0f
             CategorySpending(cat, amount, pct)
         }.sortedByDescending { it.totalAmount }
