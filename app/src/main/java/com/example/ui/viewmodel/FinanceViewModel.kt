@@ -294,25 +294,63 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
 
         // 3. Category spending breakdown
-        val expenseTx = thisMonthTransactions.filter { it.type == "EXPENSE" }
-        val catMap = categories.associateBy { it.id }
-        val spendingByCat = mutableMapOf<Long, Double>()
-        expenseTx.forEach { tx ->
-            val catId = tx.categoryId ?: -1L
+        val expenseTx = thisMonthTransactions.filter { tx ->
             val acc = accounts.find { it.id == tx.accountId }
+            val toAcc = accounts.find { it.id == tx.toAccountId }
+            val accInAnalytics = acc?.includeInAnalytics ?: true
+            val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+
+            val isExpense = tx.type == "EXPENSE" && accInAnalytics
+            val isTransferOut = tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics
+            isExpense || isTransferOut
+        }
+        val catMap = categories.associateBy { it.id }
+        val spendingByCat = mutableMapOf<String, Double>()
+        expenseTx.forEach { tx ->
+            val acc = accounts.find { it.id == tx.accountId }
+            val toAcc = accounts.find { it.id == tx.toAccountId }
+            val accInAnalytics = acc?.includeInAnalytics ?: true
+            val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
+            val isTransferOut = tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics
+
             val curr = acc?.currency ?: config.baseCurrency
             val convertedAmount = CurrencyHelper.convert(tx.amount, curr, config.baseCurrency)
-            spendingByCat[catId] = (spendingByCat[catId] ?: 0.0) + convertedAmount
+
+            val key = when {
+                tx.debtId != null -> "debt_${tx.debtId}"
+                tx.categoryId != null -> "cat_${tx.categoryId}"
+                isTransferOut -> "transfer_out"
+                else -> "uncategorized"
+            }
+            spendingByCat[key] = (spendingByCat[key] ?: 0.0) + convertedAmount
         }
 
-        val categorySpendings = spendingByCat.mapNotNull { (catId, amount) ->
-            val cat = catMap[catId] ?: CategoryEntity(
-                id = -1,
-                name = "Без категории",
-                type = "EXPENSE",
-                iconName = "more_horiz",
-                colorHex = "#94A3B8"
-            )
+        val debtsMap = debts.associateBy { it.id }
+        val categorySpendings = spendingByCat.mapNotNull { (key, amount) ->
+            val cat = when {
+                key.startsWith("debt_") -> {
+                    val debtId = key.removePrefix("debt_").toLongOrNull()
+                    val debt = debtsMap[debtId]
+                    val debtName = debt?.personName ?: "Неизвестный долг"
+                    CategoryEntity(
+                        id = -(debtId ?: 1L) - 100000L,
+                        name = "Долг: $debtName",
+                        iconName = "money_off",
+                        colorHex = "#F44336",
+                        type = "EXPENSE"
+                    )
+                }
+                key.startsWith("cat_") -> {
+                    val catId = key.removePrefix("cat_").toLongOrNull() ?: -1L
+                    catMap[catId] ?: CategoryEntity(id = -1L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+                key == "transfer_out" -> {
+                    CategoryEntity(id = -2L, name = "Переводы", iconName = "swap_horiz", colorHex = "#9E9E9E", type = "EXPENSE")
+                }
+                else -> {
+                    CategoryEntity(id = -3L, name = "Без категории", iconName = "more_horiz", colorHex = "#94A3B8", type = "EXPENSE")
+                }
+            }
             val pct = if (monthlyExpense > 0) (amount / monthlyExpense).toFloat() else 0f
             CategorySpending(cat, amount, pct)
         }.sortedByDescending { it.totalAmount }
@@ -324,7 +362,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             val spent = if (budget.categoryId == null) {
                 monthlyExpense
             } else {
-                spendingByCat[budget.categoryId] ?: 0.0
+                spendingByCat["cat_${budget.categoryId}"] ?: 0.0
             }
             val percent = if (budget.limitAmount > 0) (spent / budget.limitAmount).toFloat() else 0f
             BudgetProgress(
@@ -524,7 +562,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         tag: String = "",
         excludeFromStats: Boolean = false,
         goalId: Long? = null,
-        debtId: Long? = null
+        debtId: Long? = null,
+        fromGoalId: Long? = null,
+        toGoalId: Long? = null
     ) {
         viewModelScope.launch {
             repository.addTransaction(
@@ -539,7 +579,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     tag = tag,
                     excludeFromStats = excludeFromStats,
                     goalId = goalId,
-                    debtId = debtId
+                    debtId = debtId,
+                    fromGoalId = fromGoalId,
+                    toGoalId = toGoalId
                 )
             )
             _statusMessage.value = "Операция успешно добавлена"
@@ -838,6 +880,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     accountId = accountId,
                     toAccountId = null,
                     goalId = goalId,
+                    toGoalId = goalId,
                     timestamp = System.currentTimeMillis(),
                     note = "Пополнение: $goalName",
                     tag = "копилка,цель",
@@ -935,10 +978,11 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     toAccountId = if (type == "TRANSFER") toAccountId else null,
                     categoryId = if (type != "TRANSFER") categoryId else null,
                     goalId = if (type == "TRANSFER") goalId else null,
+                    toGoalId = if (type == "TRANSFER") goalId else null,
                     timestamp = notification.timestamp,
                     note = finalNote,
                     tag = if (isZenmoney) "дзен-мани" else "банк-авто",
-                    excludeFromStats = (type == "TRANSFER")
+                    excludeFromStats = false
                 )
             )
             repository.markNotificationProcessed(notification.id)
@@ -1224,7 +1268,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun askGemini(promptType: AiPromptType, userQuestion: String? = null) {
-        val currentState = uiState.value
         if (!geminiPrefs.isApiKeyConfigured()) {
             _aiState.value = AiState.Error("Ключ Gemini API не настроен. Перейдите в Настройки и введите ваш ключ.", isApiKeyMissing = true)
             return
@@ -1247,42 +1290,67 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             repository.saveAiMessage(userMessage)
+            executeGeminiRequest(promptType, userQuestion)
+        }
+    }
 
-            val result = geminiService.askAssistant(
-                promptType = promptType,
-                userQuestion = userQuestion,
-                accounts = currentState.accounts,
-                categories = currentState.categories,
-                transactions = currentState.transactions,
-                budgets = currentState.budgetProgresses,
-                goals = currentState.goals,
-                debts = currentState.debts,
-                baseCurrency = currentState.baseCurrency,
-                monthlyIncome = currentState.monthlyIncome,
-                monthlyExpense = currentState.monthlyExpense,
-                categorySpendings = currentState.categorySpendings,
-                conversationHistory = _aiMessages.value,
-                payday = currentState.payday,
-                paydayPeriodLabel = currentState.paydayPeriodLabel,
-                daysUntilPayday = currentState.daysUntilPayday,
-                bankOfTheMonth = currentState.bankOfTheMonth
+    fun retryLastAiRequest() {
+        val lastMessage = _aiMessages.value.lastOrNull()
+        if (lastMessage == null || lastMessage.sender != MessageSender.USER) {
+            _statusMessage.value = "Нет сообщения для повтора"
+            return
+        }
+
+        if (!geminiPrefs.isApiKeyConfigured()) {
+            _aiState.value = AiState.Error("Ключ Gemini API не настроен. Перейдите в Настройки и введите ваш ключ.", isApiKeyMissing = true)
+            return
+        }
+
+        _aiState.value = AiState.Loading
+
+        viewModelScope.launch {
+            val userQuestion = if (lastMessage.promptType == AiPromptType.CUSTOM) lastMessage.text else null
+            val promptType = lastMessage.promptType ?: AiPromptType.CUSTOM
+            executeGeminiRequest(promptType, userQuestion)
+        }
+    }
+
+    private suspend fun executeGeminiRequest(promptType: AiPromptType, userQuestion: String?) {
+        val currentState = uiState.value
+        val result = geminiService.askAssistant(
+            promptType = promptType,
+            userQuestion = userQuestion,
+            accounts = currentState.accounts,
+            categories = currentState.categories,
+            transactions = currentState.transactions,
+            budgets = currentState.budgetProgresses,
+            goals = currentState.goals,
+            debts = currentState.debts,
+            baseCurrency = currentState.baseCurrency,
+            monthlyIncome = currentState.monthlyIncome,
+            monthlyExpense = currentState.monthlyExpense,
+            categorySpendings = currentState.categorySpendings,
+            conversationHistory = _aiMessages.value,
+            payday = currentState.payday,
+            paydayPeriodLabel = currentState.paydayPeriodLabel,
+            daysUntilPayday = currentState.daysUntilPayday,
+            bankOfTheMonth = currentState.bankOfTheMonth
+        )
+
+        if (result.isSuccess) {
+            val answer = result.getOrNull() ?: ""
+            val assistantMessage = AiMessage(
+                sender = MessageSender.ASSISTANT,
+                text = answer,
+                promptType = promptType
             )
-
-            if (result.isSuccess) {
-                val answer = result.getOrNull() ?: ""
-                val assistantMessage = AiMessage(
-                    sender = MessageSender.ASSISTANT,
-                    text = answer,
-                    promptType = promptType
-                )
-                _aiMessages.value = _aiMessages.value + assistantMessage
-                repository.saveAiMessage(assistantMessage)
-                _aiState.value = AiState.Success(answer)
-            } else {
-                val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"
-                val isKeyMissing = errorMsg.contains("не настроен", ignoreCase = true)
-                _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing)
-            }
+            _aiMessages.value = _aiMessages.value + assistantMessage
+            repository.saveAiMessage(assistantMessage)
+            _aiState.value = AiState.Success(answer)
+        } else {
+            val errorMsg = result.exceptionOrNull()?.message ?: "Произошла ошибка при обращении к Gemini"
+            val isKeyMissing = errorMsg.contains("не настроен", ignoreCase = true)
+            _aiState.value = AiState.Error(errorMsg, isApiKeyMissing = isKeyMissing)
         }
     }
     // Planned Transactions

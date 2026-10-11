@@ -40,7 +40,7 @@ import java.util.Locale
 fun BankSyncScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
-    onConfirmNotification: (PendingNotificationEntity, Long, Long?, Long?, Long?, String, String) -> Unit,
+    onConfirmNotification: (PendingNotificationEntity, Long, Long?, Long?, Long?, Long?, String, String) -> Unit,
     onDismissNotification: (PendingNotificationEntity) -> Unit,
     onParseManualText: (String) -> Unit,
     onAddToSpam: (PendingNotificationEntity, String) -> Unit = { _, _ -> },
@@ -312,8 +312,9 @@ fun BankSyncScreen(
                         accounts = state.accounts,
                         categories = state.categories,
                         goals = state.goals,
-                        onConfirm = { accId, catId, toAccId, goalId, type, note ->
-                            onConfirmNotification(notif, accId, catId, toAccId, goalId, type, note)
+                        debts = state.debts,
+                        onConfirm = { accId, catId, toAccId, goalId, debtId, type, note ->
+                            onConfirmNotification(notif, accId, catId, toAccId, goalId, debtId, type, note)
                         },
                         onDismiss = {
                             onDismissNotification(notif)
@@ -411,7 +412,8 @@ fun PendingNotificationCard(
     accounts: List<com.example.data.entity.AccountEntity>,
     categories: List<com.example.data.entity.CategoryEntity>,
     goals: List<GoalEntity> = emptyList(),
-    onConfirm: (accountId: Long, categoryId: Long?, toAccountId: Long?, goalId: Long?, type: String, note: String) -> Unit,
+    debts: List<com.example.data.entity.DebtEntity> = emptyList(),
+    onConfirm: (accountId: Long, categoryId: Long?, toAccountId: Long?, goalId: Long?, debtId: Long?, type: String, note: String) -> Unit,
     onDismiss: () -> Unit,
     onAddToSpam: (keyword: String) -> Unit = {}
 ) {
@@ -431,6 +433,16 @@ fun PendingNotificationCard(
             }
         )
     }
+    var selectedDebtId by remember(notification, selectedType) {
+        mutableStateOf<Long?>(null)
+    }
+
+    val relevantDebts = remember(selectedType, debts) {
+        debts.filter { debt ->
+            !debt.isSettled && if (selectedType == "EXPENSE") !debt.isOwedToMe else debt.isOwedToMe
+        }
+    }
+
     var selectedToAccountId by remember(notification) {
         val otherAccount = accounts.firstOrNull { it.id != (notification.suggestedAccountId ?: accounts.firstOrNull()?.id ?: 1L) }
         mutableStateOf<Long?>(otherAccount?.id)
@@ -757,6 +769,7 @@ fun PendingNotificationCard(
                     // Category selector
                     var showCategoryMenu by remember { mutableStateOf(false) }
                     val currentCategory = categories.find { it.id == selectedCategoryId }
+                    val currentDebt = debts.find { it.id == selectedDebtId }
 
                     Box(modifier = Modifier.weight(1f)) {
                         OutlinedButton(
@@ -765,7 +778,7 @@ fun PendingNotificationCard(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Text(
-                                text = currentCategory?.name ?: "Категория",
+                                text = currentDebt?.let { (if (it.isOwedToMe) "Возврат: " else "Погашение: ") + it.personName } ?: currentCategory?.name ?: "Категория или долг",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 fontSize = 12.sp
@@ -780,9 +793,29 @@ fun PendingNotificationCard(
                                     text = { Text(cat.name) },
                                     onClick = {
                                         selectedCategoryId = cat.id
+                                        selectedDebtId = null
                                         showCategoryMenu = false
                                     }
                                 )
+                            }
+                            if (relevantDebts.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text(
+                                    text = "  Долги и займы:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                )
+                                relevantDebts.forEach { debt ->
+                                    DropdownMenuItem(
+                                        text = { Text((if (debt.isOwedToMe) "Возврат: " else "Погашение: ") + debt.personName) },
+                                        onClick = {
+                                            selectedDebtId = debt.id
+                                            selectedCategoryId = null
+                                            showCategoryMenu = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -819,9 +852,10 @@ fun PendingNotificationCard(
                         onClick = {
                             onConfirm(
                                 selectedAccountId,
-                                if (selectedType != "TRANSFER") selectedCategoryId else null,
+                                if (selectedType != "TRANSFER" && selectedDebtId == null) selectedCategoryId else null,
                                 if (selectedType == "TRANSFER") selectedToAccountId else null,
                                 if (selectedType == "TRANSFER") selectedGoalId else null,
+                                if (selectedType != "TRANSFER") selectedDebtId else null,
                                 selectedType,
                                 noteText
                             )

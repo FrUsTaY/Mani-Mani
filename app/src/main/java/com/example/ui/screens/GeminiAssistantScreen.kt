@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -45,6 +46,7 @@ fun GeminiAssistantScreen(
     state: FinanceUiState,
     onBack: () -> Unit,
     onAskGemini: (AiPromptType, String?) -> Unit,
+    onRetryAiRequest: () -> Unit,
     onClearChat: () -> Unit,
     onUpdateInputText: (String) -> Unit,
     onSaveApiKey: (String) -> Unit,
@@ -342,15 +344,36 @@ fun GeminiAssistantScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onErrorContainer
                                     )
-                                    if (errorState.isApiKeyMissing) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Button(
-                                            onClick = { showApiKeyDialog = true },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.error
-                                            )
-                                        ) {
-                                            Text("Настроить API ключ", color = MaterialTheme.colorScheme.onError)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (errorState.isApiKeyMissing) {
+                                            Button(
+                                                onClick = { showApiKeyDialog = true },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.error
+                                                )
+                                            ) {
+                                                Text("Настроить API ключ", color = MaterialTheme.colorScheme.onError)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = onRetryAiRequest,
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.error
+                                                ),
+                                                modifier = Modifier.testTag("retry_ai_button")
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = "Повторить",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Повторить", color = MaterialTheme.colorScheme.onError)
+                                            }
                                         }
                                     }
                                 }
@@ -540,16 +563,18 @@ fun AiMessageCard(
     ) {
         if (isUser) {
             Surface(
-                color = MaterialTheme.colorScheme.primary,
+                color = Color(0xFFADD8E6),
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
                 modifier = Modifier.widthIn(max = 300.dp)
             ) {
-                Text(
-                    text = message.text,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                )
+                SelectionContainer {
+                    Text(
+                        text = message.text,
+                        color = Color.Black,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
             }
         } else {
             Card(
@@ -608,12 +633,14 @@ fun AiMessageCard(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = message.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 22.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = message.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            lineHeight = 22.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

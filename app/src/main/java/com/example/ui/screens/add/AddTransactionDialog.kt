@@ -79,7 +79,10 @@ fun AddTransactionDialog(
         tag: String,
         excludeFromStats: Boolean,
         goalId: Long?,
-        debtId: Long?
+        debtId: Long?,
+        timestamp: Long,
+        fromGoalId: Long?,
+        toGoalId: Long?
     ) -> Unit
 ) {
     val activeAccounts = remember(accounts) { accounts.filter { !it.isArchived } }
@@ -97,18 +100,22 @@ fun AddTransactionDialog(
 
     var selectedAccountId by remember {
         mutableStateOf(
-            transactionToEdit?.accountId ?: activeAccounts.firstOrNull()?.id ?: 0L
+            if (transactionToEdit?.fromGoalId != null) 0L else transactionToEdit?.accountId ?: activeAccounts.firstOrNull()?.id ?: 0L
         )
+    }
+
+    var selectedFromGoalId by remember {
+        mutableStateOf(transactionToEdit?.fromGoalId)
     }
 
     var selectedToAccountId by remember {
         mutableStateOf(
-            if (transactionToEdit?.goalId != null) 0L else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
+            if (transactionToEdit?.toGoalId != null || transactionToEdit?.goalId != null) 0L else transactionToEdit?.toAccountId ?: activeAccounts.getOrNull(1)?.id ?: activeAccounts.firstOrNull()?.id ?: 0L
         )
     }
 
     var selectedGoalId by remember {
-        mutableStateOf(transactionToEdit?.goalId)
+        mutableStateOf(transactionToEdit?.toGoalId ?: transactionToEdit?.goalId)
     }
     var selectedDebtId by remember {
         mutableStateOf(transactionToEdit?.debtId)
@@ -145,7 +152,45 @@ fun AddTransactionDialog(
     var noteText by remember { mutableStateOf(transactionToEdit?.note ?: "") }
     var tagText by remember { mutableStateOf(transactionToEdit?.tag ?: "") }
     var excludeFromStats by remember { mutableStateOf(transactionToEdit?.excludeFromStats ?: false) }
+    var customTimestamp by remember { mutableStateOf<Long?>(transactionToEdit?.timestamp) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    val showTimePicker = {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = customTimestamp ?: System.currentTimeMillis()
+        android.app.TimePickerDialog(
+            context,
+            { _, hourOfDay, minute ->
+                cal.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
+                cal.set(java.util.Calendar.MINUTE, minute)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                customTimestamp = cal.timeInMillis
+            },
+            cal.get(java.util.Calendar.HOUR_OF_DAY),
+            cal.get(java.util.Calendar.MINUTE),
+            true
+        ).show()
+    }
+
+    val showDatePicker = {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = customTimestamp ?: System.currentTimeMillis()
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                cal.set(java.util.Calendar.YEAR, year)
+                cal.set(java.util.Calendar.MONTH, month)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, dayOfMonth)
+                customTimestamp = cal.timeInMillis
+                showTimePicker()
+            },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
+    }
 
     // Smart Bank recommendation based on user rules
     val bankSuggestion = remember(selectedType, selectedCategoryId, noteText, bankOfTheMonth, activeAccounts, categories) {
@@ -438,7 +483,7 @@ fun AddTransactionDialog(
                             color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                             border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                             modifier = Modifier
-                                .clickable { selectedAccountId = acc.id }
+                                .clickable { selectedAccountId = acc.id; selectedFromGoalId = null }
                                 .testTag("account_chip_${acc.id}")
                         ) {
                             Row(
@@ -463,6 +508,45 @@ fun AddTransactionDialog(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                            }
+                        }
+                    }
+                    if (selectedType == "TRANSFER") {
+                        items(goals) { goal ->
+                            val isSelected = goal.id == selectedFromGoalId
+                            val goalColor = IconHelper.parseColor(goal.colorHex)
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                                modifier = Modifier
+                                    .clickable { selectedAccountId = 0L; selectedFromGoalId = goal.id }
+                                    .testTag("from_goal_chip_${goal.id}")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(goalColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Копилка: " + goal.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            text = CurrencyHelper.formatAmount(goal.currentAmount, "RUB"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -698,6 +782,39 @@ fun AddTransactionDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (selectedType != "RECEIPT") {
+                // Date Picker
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDatePicker() }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = "Выбрать дату",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Дата и время",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (customTimestamp != null) com.example.ui.util.DateHelper.formatDate(customTimestamp!!) else "Текущая дата и время",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (selectedType != "RECEIPT") {
                 // Note
                 OutlinedTextField(
                     value = noteText,
@@ -717,7 +834,9 @@ fun AddTransactionDialog(
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Tag
                 OutlinedTextField(
                     value = tagText,
@@ -737,7 +856,9 @@ fun AddTransactionDialog(
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Exclude switch
                 Row(
                     modifier = Modifier
@@ -766,7 +887,9 @@ fun AddTransactionDialog(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+                }
 
+                if (selectedType != "RECEIPT") {
                 // Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -789,17 +912,30 @@ fun AddTransactionDialog(
                                 errorMessage = "Введите корректную сумму больше нуля"
                                 return@Button
                             }
-                            if (selectedAccountId == 0L) {
-                                errorMessage = "Выберите счёт списания"
+                            if (selectedAccountId == 0L && selectedFromGoalId == null) {
+                                errorMessage = "Выберите счёт или копилку списания"
                                 return@Button
                             }
-                            if (selectedType == "TRANSFER" && selectedGoalId == null && selectedAccountId == selectedToAccountId) {
-                                errorMessage = "Выберите разные счета для перевода"
-                                return@Button
-                            }
-                            if (selectedType == "TRANSFER" && selectedGoalId == null && (selectedToAccountId == null || selectedToAccountId == 0L)) {
-                                errorMessage = "Выберите счет зачисления или копилку"
-                                return@Button
+                            if (selectedType == "TRANSFER") {
+                                if (selectedFromGoalId != null) {
+                                    val sourceGoal = goals.find { it.id == selectedFromGoalId }
+                                    if (sourceGoal != null && amount > sourceGoal.currentAmount && transactionToEdit == null) {
+                                        errorMessage = "Недостаточно средств в копилке"
+                                        return@Button
+                                    }
+                                }
+                                if (selectedGoalId == null && selectedToAccountId == 0L) {
+                                    errorMessage = "Выберите счет зачисления или копилку"
+                                    return@Button
+                                }
+                                if (selectedGoalId == null && selectedFromGoalId == null && selectedAccountId == selectedToAccountId) {
+                                    errorMessage = "Выберите разные счета для перевода"
+                                    return@Button
+                                }
+                                if (selectedGoalId != null && selectedFromGoalId != null && selectedGoalId == selectedFromGoalId) {
+                                    errorMessage = "Нельзя перевести в ту же копилку"
+                                    return@Button
+                                }
                             }
                             if (selectedType != "TRANSFER" && selectedCategoryId == null && selectedDebtId == null) {
                                 errorMessage = "Выберите категорию или долг"
@@ -821,7 +957,10 @@ fun AddTransactionDialog(
                                 tagText.trim(),
                                 excludeFromStats,
                                 if (selectedType == "TRANSFER") selectedGoalId else null,
-                                if (selectedType != "TRANSFER") selectedDebtId else null
+                                if (selectedType != "TRANSFER") selectedDebtId else null,
+                                customTimestamp ?: System.currentTimeMillis(),
+                                if (selectedType == "TRANSFER") selectedFromGoalId else null,
+                                if (selectedType == "TRANSFER") selectedGoalId else null
                             )
                             onDismiss()
                         },
@@ -844,6 +983,7 @@ fun AddTransactionDialog(
                             fontSize = 16.sp
                         )
                     }
+                }
                 }
                 }
             }

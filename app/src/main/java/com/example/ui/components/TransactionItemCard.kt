@@ -45,7 +45,11 @@ fun TransactionItemCard(
     val account = accountsMap[transaction.accountId]
     val toAccount = transaction.toAccountId?.let { accountsMap[it] }
     val category = transaction.categoryId?.let { categoriesMap[it] }
-    val goal = transaction.goalId?.let { goalsMap[it] }
+
+    val targetGoalId = transaction.toGoalId ?: transaction.goalId
+    val goal = targetGoalId?.let { goalsMap[it] }
+    val fromGoal = transaction.fromGoalId?.let { goalsMap[it] }
+
     val debt = transaction.debtId?.let { debtsMap[it] }
     val currency = account?.currency ?: "RUB"
 
@@ -71,11 +75,31 @@ fun TransactionItemCard(
             Quad(iconVec, color, dispTitle, sub)
         }
         else -> {
-            val iconVec = if (goal != null) IconHelper.getIconByName(goal.iconName) else Icons.AutoMirrored.Filled.CompareArrows
-            val color = if (goal != null) IconHelper.parseColor(goal.colorHex) else TransferBlue
-            val fromName = account?.name ?: "Счёт"
-            val toName = if (goal != null) "🎯 ${goal.name}" else toAccount?.name ?: "Счёт"
-            val dispTitle = if (goal != null) "В копилку" else "Перевод"
+            val isFromGoal = fromGoal != null
+            val isToGoal = goal != null
+
+            val iconVec = when {
+                isToGoal -> IconHelper.getIconByName(goal!!.iconName)
+                isFromGoal -> IconHelper.getIconByName(fromGoal!!.iconName)
+                else -> Icons.AutoMirrored.Filled.CompareArrows
+            }
+
+            val color = when {
+                isToGoal -> IconHelper.parseColor(goal!!.colorHex)
+                isFromGoal -> IconHelper.parseColor(fromGoal!!.colorHex)
+                else -> TransferBlue
+            }
+
+            val fromName = if (isFromGoal) "🎯 ${fromGoal!!.name}" else account?.name ?: "Счёт"
+            val toName = if (isToGoal) "🎯 ${goal!!.name}" else toAccount?.name ?: "Счёт"
+
+            val dispTitle = when {
+                isFromGoal && isToGoal -> "Из копилки в копилку"
+                isFromGoal -> "Из копилки"
+                isToGoal -> "В копилку"
+                else -> "Перевод"
+            }
+
             Quad(iconVec, color, dispTitle, "$fromName → $toName")
         }
     }
@@ -153,21 +177,27 @@ fun TransactionItemCard(
                 }
                 val isExcludeFromStats = transaction.excludeFromStats
                 val isExcludedFromAnalytics = account?.includeInAnalytics == false
-                if (goal != null || isExcludeFromStats || isExcludedFromAnalytics) {
+                if (goal != null || fromGoal != null || isExcludeFromStats || isExcludedFromAnalytics) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (goal != null) {
-                            val goalColor = IconHelper.parseColor(goal.colorHex)
+                        if (goal != null || fromGoal != null) {
+                            val displayGoal = goal ?: fromGoal
+                            val textStr = when {
+                                fromGoal != null && goal != null -> "🎯 Из ${fromGoal.name} в ${goal.name}"
+                                fromGoal != null -> "🎯 Из копилки: ${fromGoal.name}"
+                                else -> "🎯 В копилку: ${goal?.name}"
+                            }
+                            val goalColor = IconHelper.parseColor(displayGoal!!.colorHex)
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = goalColor.copy(alpha = 0.18f),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, goalColor.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = "🎯 В копилку: ${goal.name}",
+                                    text = textStr,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,

@@ -83,20 +83,32 @@ class FinanceRepository(private val db: AppDatabase) {
                 accountDao.updateBalance(transaction.accountId, transaction.amount)
             }
             "TRANSFER" -> {
-                accountDao.updateBalance(transaction.accountId, -transaction.amount)
-                transaction.toAccountId?.let { toId ->
-                    accountDao.updateBalance(toId, transaction.amount)
+                if (transaction.fromGoalId == null) {
+                    accountDao.updateBalance(transaction.accountId, -transaction.amount)
+                }
+                if (transaction.toGoalId == null) {
+                    transaction.toAccountId?.let { toId ->
+                        accountDao.updateBalance(toId, transaction.amount)
+                    }
                 }
             }
         }
         
-        // Handle Goal funding (typically a TRANSFER, but we check if goalId is present)
-        transaction.goalId?.let { goalId ->
+        // Legacy goalId support + new toGoalId (funding a goal)
+        val targetGoalId = transaction.toGoalId ?: transaction.goalId
+        targetGoalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
-                // If it's a transfer, we added to it. (Or expense)
                 val sign = if (transaction.type == "INCOME") -1 else 1 
                 goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (transaction.amount * sign)))
+            }
+        }
+
+        // New fromGoalId (withdrawing from a goal)
+        transaction.fromGoalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - transaction.amount))
             }
         }
         
@@ -126,14 +138,19 @@ class FinanceRepository(private val db: AppDatabase) {
                 accountDao.updateBalance(transaction.accountId, -transaction.amount)
             }
             "TRANSFER" -> {
-                accountDao.updateBalance(transaction.accountId, transaction.amount)
-                transaction.toAccountId?.let { toId ->
-                    accountDao.updateBalance(toId, -transaction.amount)
+                if (transaction.fromGoalId == null) {
+                    accountDao.updateBalance(transaction.accountId, transaction.amount)
+                }
+                if (transaction.toGoalId == null) {
+                    transaction.toAccountId?.let { toId ->
+                        accountDao.updateBalance(toId, -transaction.amount)
+                    }
                 }
             }
         }
         
-        transaction.goalId?.let { goalId ->
+        val delTargetGoalId = transaction.toGoalId ?: transaction.goalId
+        delTargetGoalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
                 val sign = if (transaction.type == "INCOME") -1 else 1
@@ -141,6 +158,13 @@ class FinanceRepository(private val db: AppDatabase) {
             }
         }
         
+        transaction.fromGoalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + transaction.amount))
+            }
+        }
+
         transaction.debtId?.let { debtId ->
             val debt = debtDao.getDebtById(debtId)
             if (debt != null) {
@@ -172,9 +196,13 @@ class FinanceRepository(private val db: AppDatabase) {
                 accountDao.updateBalance(oldTransaction.accountId, -oldTransaction.amount)
             }
             "TRANSFER" -> {
-                accountDao.updateBalance(oldTransaction.accountId, oldTransaction.amount)
-                oldTransaction.toAccountId?.let { toId ->
-                    accountDao.updateBalance(toId, -oldTransaction.amount)
+                if (oldTransaction.fromGoalId == null) {
+                    accountDao.updateBalance(oldTransaction.accountId, oldTransaction.amount)
+                }
+                if (oldTransaction.toGoalId == null) {
+                    oldTransaction.toAccountId?.let { toId ->
+                        accountDao.updateBalance(toId, -oldTransaction.amount)
+                    }
                 }
             }
         }
@@ -188,19 +216,30 @@ class FinanceRepository(private val db: AppDatabase) {
                 accountDao.updateBalance(newTransaction.accountId, newTransaction.amount)
             }
             "TRANSFER" -> {
-                accountDao.updateBalance(newTransaction.accountId, -newTransaction.amount)
-                newTransaction.toAccountId?.let { toId ->
-                    accountDao.updateBalance(toId, newTransaction.amount)
+                if (newTransaction.fromGoalId == null) {
+                    accountDao.updateBalance(newTransaction.accountId, -newTransaction.amount)
+                }
+                if (newTransaction.toGoalId == null) {
+                    newTransaction.toAccountId?.let { toId ->
+                        accountDao.updateBalance(toId, newTransaction.amount)
+                    }
                 }
             }
         }
 
         // 3. Reverse previous goal / debt effect
-        oldTransaction.goalId?.let { goalId ->
+        val oldTargetGoalId = oldTransaction.toGoalId ?: oldTransaction.goalId
+        oldTargetGoalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
                 val sign = if (oldTransaction.type == "INCOME") -1 else 1
                 goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - (oldTransaction.amount * sign)))
+            }
+        }
+        oldTransaction.fromGoalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + oldTransaction.amount))
             }
         }
         oldTransaction.debtId?.let { debtId ->
@@ -212,11 +251,18 @@ class FinanceRepository(private val db: AppDatabase) {
         }
 
         // 4. Apply new goal / debt effect
-        newTransaction.goalId?.let { goalId ->
+        val newTargetGoalId = newTransaction.toGoalId ?: newTransaction.goalId
+        newTargetGoalId?.let { goalId ->
             val goal = goalDao.getGoalById(goalId)
             if (goal != null) {
                 val sign = if (newTransaction.type == "INCOME") -1 else 1
                 goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount + (newTransaction.amount * sign)))
+            }
+        }
+        newTransaction.fromGoalId?.let { goalId ->
+            val goal = goalDao.getGoalById(goalId)
+            if (goal != null) {
+                goalDao.updateGoal(goal.copy(currentAmount = goal.currentAmount - newTransaction.amount))
             }
         }
         newTransaction.debtId?.let { debtId ->
