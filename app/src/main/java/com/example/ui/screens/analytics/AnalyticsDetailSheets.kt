@@ -536,6 +536,12 @@ fun PeriodComparisonDetailSheet(
     prevExpense: Double,
     periodLabel: String,
     currency: String,
+    currentPeriodDates: String = "",
+    prevPeriodDates: String = "",
+    currentDays: Int = 1,
+    prevDays: Int = 1,
+    comparisonIsDayToDay: Boolean = true,
+    onComparisonTypeChange: (Boolean) -> Unit = {},
     currentTransactions: List<TransactionEntity>,
     accountsMap: Map<Long, AccountEntity>,
     categoriesMap: Map<Long, CategoryEntity>,
@@ -576,11 +582,54 @@ fun PeriodComparisonDetailSheet(
                 }
             }
 
-            Text(
-                text = periodLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Toggle
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth().height(40.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (!comparisonIsDayToDay) MaterialTheme.colorScheme.surface else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable { onComparisonTypeChange(false) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Весь период",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (!comparisonIsDayToDay) FontWeight.Bold else FontWeight.Normal,
+                            color = if (!comparisonIsDayToDay) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (comparisonIsDayToDay) MaterialTheme.colorScheme.surface else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable { onComparisonTypeChange(true) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "День к дню ($currentDays дн.)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (comparisonIsDayToDay) FontWeight.Bold else FontWeight.Normal,
+                            color = if (comparisonIsDayToDay) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -596,16 +645,24 @@ fun PeriodComparisonDetailSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("Текущий период", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Текущий период ($currentDays дн.)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                            if (currentPeriodDates.isNotEmpty()) {
+                                Text(currentPeriodDates, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 CurrencyHelper.formatAmount(currentExpense, currency),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Предыдущий период", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text("Предыдущий ($prevDays дн.)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                            if (prevPeriodDates.isNotEmpty()) {
+                                Text(prevPeriodDates, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 CurrencyHelper.formatAmount(prevExpense, currency),
                                 style = MaterialTheme.typography.titleMedium,

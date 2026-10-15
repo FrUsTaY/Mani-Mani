@@ -28,6 +28,7 @@ import com.example.ui.viewmodel.FinanceUiState
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
+import kotlin.math.min
 
 private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
@@ -56,6 +57,7 @@ fun AnalyticsScreen(
     // Bottom sheet states
     var showIncomeExpenseSheet by remember { mutableStateOf(false) }
     var showCategoryExpenseSheet by remember { mutableStateOf(false) }
+    var comparisonIsDayToDay by remember { mutableStateOf(true) }
     var showPeriodComparisonSheet by remember { mutableStateOf(false) }
     var showSavingsDynamicsSheet by remember { mutableStateOf(false) }
     var showFreeMoneySheet by remember { mutableStateOf(false) }
@@ -244,13 +246,55 @@ fun AnalyticsScreen(
         Quad(inc, exp, spendings, txs)
     }
 
+    // Previous period bounds
+    val (prevPeriodStartTime, prevPeriodFullEndTime) = remember(selectedPeriodType, periodStartTime, periodEndTime) {
+        when (selectedPeriodType) {
+            AnalyticsPeriodType.PAYDAY -> {
+                val sCal = Calendar.getInstance().apply { timeInMillis = periodStartTime; add(Calendar.MONTH, -1) }
+                val eCal = Calendar.getInstance().apply { timeInMillis = periodEndTime; add(Calendar.MONTH, -1) }
+                Pair(sCal.timeInMillis, eCal.timeInMillis)
+            }
+            AnalyticsPeriodType.CURRENT_MONTH -> {
+                val cal = Calendar.getInstance().apply { timeInMillis = periodStartTime; add(Calendar.MONTH, -1) }
+                val start = cal.timeInMillis
+                cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
+                Pair(start, cal.timeInMillis)
+            }
+            AnalyticsPeriodType.PREV_MONTH -> {
+                val cal = Calendar.getInstance().apply { timeInMillis = periodStartTime; add(Calendar.MONTH, -1) }
+                val start = cal.timeInMillis
+                cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
+                Pair(start, cal.timeInMillis)
+            }
+            AnalyticsPeriodType.LAST_30_DAYS -> {
+                val length = periodEndTime - periodStartTime
+                Pair(periodStartTime - length, periodEndTime - length)
+            }
+            AnalyticsPeriodType.ALL_TIME -> {
+                Pair(0L, periodStartTime - 1)
+            }
+        }
+    }
+
+    val prevPeriodDayToDayEndTime = remember(prevPeriodStartTime, periodStartTime, periodEndTime, now) {
+        val offsetMs = max(0L, min(now, periodEndTime) - periodStartTime)
+        prevPeriodStartTime + offsetMs
+    }
+
+    val activePrevPeriodEndTime = if (comparisonIsDayToDay) prevPeriodDayToDayEndTime else prevPeriodFullEndTime
+
     // Previous period expense for comparison
-    val prevPeriodExpense = remember(state.transactions, state.accounts, state.baseCurrency) {
-        val thirtyDaysMs = 30L * 86_400_000L
-        val prevStart = now - (2 * thirtyDaysMs)
-        val prevEnd = now - thirtyDaysMs
+    val prevPeriodExpense = remember(state.transactions, state.accounts, state.baseCurrency, prevPeriodStartTime, activePrevPeriodEndTime) {
         state.transactions.filter {
-            it.timestamp in prevStart..prevEnd && !it.excludeFromStats
+            it.timestamp in prevPeriodStartTime..activePrevPeriodEndTime && !it.excludeFromStats
         }.sumOf { tx ->
             val acc = state.accounts.find { it.id == tx.accountId }
             val toAcc = state.accounts.find { it.id == tx.toAccountId }
@@ -420,10 +464,23 @@ fun AnalyticsScreen(
             // 4. Card 3: "Сравнение периодов"
             item {
                 Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    val dateFormat = remember { java.text.SimpleDateFormat("d MMM", java.util.Locale("ru")) }
+                    val currentStartStr = dateFormat.format(java.util.Date(periodStartTime)).lowercase()
+                    val currentEndStr = dateFormat.format(java.util.Date(min(now, periodEndTime))).lowercase()
+                    val prevStartStr = dateFormat.format(java.util.Date(prevPeriodStartTime)).lowercase()
+                    val prevEndStr = dateFormat.format(java.util.Date(activePrevPeriodEndTime)).lowercase()
+
+                    val currentDays = max(1, ((min(now, periodEndTime) - periodStartTime) / 86_400_000L).toInt() + 1)
+                    val prevDays = max(1, ((activePrevPeriodEndTime - prevPeriodStartTime) / 86_400_000L).toInt() + 1)
+
                     ZenPeriodComparisonCard(
                         currentExpense = filteredExpense,
-                        prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else (filteredExpense * 0.88),
+                        prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else 0.0,
                         currency = state.baseCurrency,
+                        currentPeriodDates = "$currentStartStr. – $currentEndStr.",
+                        prevPeriodDates = "$prevStartStr. – $prevEndStr.",
+                        currentDays = currentDays,
+                        prevDays = prevDays,
                         onClick = { showPeriodComparisonSheet = true }
                     )
                 }
@@ -509,11 +566,26 @@ fun AnalyticsScreen(
                 (tx.type == "EXPENSE" && accInAnalytics) || (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics)
             }
         }
+        val dateFormat = remember { java.text.SimpleDateFormat("d MMM", java.util.Locale("ru")) }
+        val currentStartStr = dateFormat.format(java.util.Date(periodStartTime)).lowercase()
+        val currentEndStr = dateFormat.format(java.util.Date(min(now, periodEndTime))).lowercase()
+        val prevStartStr = dateFormat.format(java.util.Date(prevPeriodStartTime)).lowercase()
+        val prevEndStr = dateFormat.format(java.util.Date(activePrevPeriodEndTime)).lowercase()
+
+        val currentDays = max(1, ((min(now, periodEndTime) - periodStartTime) / 86_400_000L).toInt() + 1)
+        val prevDays = max(1, ((activePrevPeriodEndTime - prevPeriodStartTime) / 86_400_000L).toInt() + 1)
+
         PeriodComparisonDetailSheet(
             currentExpense = filteredExpense,
-            prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else (filteredExpense * 0.88),
+            prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else 0.0,
             periodLabel = periodLabel,
             currency = state.baseCurrency,
+            currentPeriodDates = "$currentStartStr. – $currentEndStr.",
+            prevPeriodDates = "$prevStartStr. – $prevEndStr.",
+            currentDays = currentDays,
+            prevDays = prevDays,
+            comparisonIsDayToDay = comparisonIsDayToDay,
+            onComparisonTypeChange = { comparisonIsDayToDay = it },
             currentTransactions = expenseTransactions,
             accountsMap = accountsMap,
             categoriesMap = categoriesMap,
