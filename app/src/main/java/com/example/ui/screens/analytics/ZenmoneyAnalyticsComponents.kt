@@ -882,6 +882,10 @@ fun ZenPeriodComparisonCard(
     currentExpense: Double,
     prevExpense: Double,
     currency: String,
+    currentPeriodDates: String = "",
+    prevPeriodDates: String = "",
+    currentDays: Int = 1,
+    prevDays: Int = 1,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
@@ -985,13 +989,20 @@ fun ZenPeriodComparisonCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Текущий период", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(CurrencyHelper.formatAmount(currentExpense, currency), fontWeight = FontWeight.Bold)
+                    Text("Текущий период ($currentDays дн.)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                    if (currentPeriodDates.isNotEmpty()) {
+                        Text(currentPeriodDates, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(CurrencyHelper.formatAmount(currentExpense, currency), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
-                Text("vs", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Text("Прошлый период", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(CurrencyHelper.formatAmount(prevExpense, currency), fontWeight = FontWeight.Bold)
+                    Text("Предыдущий ($prevDays дн.)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+                    if (prevPeriodDates.isNotEmpty()) {
+                        Text(prevPeriodDates, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(CurrencyHelper.formatAmount(prevExpense, currency), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             }
         }
