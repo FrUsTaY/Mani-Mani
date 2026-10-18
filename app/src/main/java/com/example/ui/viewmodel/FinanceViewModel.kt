@@ -18,6 +18,9 @@ import com.example.ui.util.CurrencyHelper
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import com.example.ui.screens.analytics.AnalyticsPeriodType
+import com.example.ui.screens.analytics.PeriodComparisonData
+import com.example.ui.screens.analytics.PeriodComparisonHelper
 
 data class CategorySpending(
     val category: CategoryEntity,
@@ -1432,5 +1435,25 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun completeFirstLaunch() {
         userFinancePrefs.setFirstLaunchCompleted()
         _isFirstLaunch.value = false
+    }
+
+    fun calculatePeriodComparison(
+        periodType: AnalyticsPeriodType,
+        now: Long = System.currentTimeMillis()
+    ): PeriodComparisonData {
+        val state = uiState.value
+        val activePayday = userFinancePrefs.calculatePaydayPeriod(state.payday, now)
+        return PeriodComparisonHelper.calculate(
+            periodType = periodType,
+            transactions = state.transactions,
+            accounts = state.accounts,
+            categoriesMap = state.categories.associateBy { it.id },
+            debtsMap = state.debts.associateBy { it.id },
+            baseCurrency = state.baseCurrency,
+            activePaydayPeriod = activePayday,
+            targetPayday = state.payday,
+            preferences = userFinancePrefs,
+            now = now
+        )
     }
 }

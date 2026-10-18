@@ -879,16 +879,11 @@ fun ZenCategoryAnalysisCard(
  */
 @Composable
 fun ZenPeriodComparisonCard(
-    currentExpense: Double,
-    prevExpense: Double,
+    comparisonData: PeriodComparisonData,
     currency: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
-    val diff = currentExpense - prevExpense
-    val percentChange = if (prevExpense > 0) ((diff / prevExpense) * 100).toInt() else 0
-    val isIncreased = diff > 0
-
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -918,7 +913,11 @@ fun ZenPeriodComparisonCard(
                         fontSize = 18.sp
                     )
                     Text(
-                        text = "Показывает разницу в расходах и причины изменений",
+                        text = if (comparisonData.isLfl) {
+                            "Сопоставимый срез (${comparisonData.daysCompared} дн.) vs прошлый период"
+                        } else {
+                            "Показывает разницу в расходах и причины изменений"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -932,47 +931,80 @@ fun ZenPeriodComparisonCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = if (isIncreased) "+$percentChange%" else "$percentChange%",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isIncreased) ExpenseRed else IncomeGreen
-                    )
-                    Text(
-                        text = if (isIncreased) "Траты выросли на ${CurrencyHelper.formatAmount(Math.abs(diff), currency)}"
-                        else "Экономия ${CurrencyHelper.formatAmount(Math.abs(diff), currency)} по сравнению с прошлым циклом",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
+            if (!comparisonData.hasEnoughData) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isIncreased) ExpenseRed.copy(alpha = 0.12f) else IncomeGreen.copy(alpha = 0.12f)
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (isIncreased) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                            imageVector = Icons.Default.Info,
                             contentDescription = null,
-                            tint = if (isIncreased) ExpenseRed else IncomeGreen,
-                            modifier = Modifier.size(16.dp)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (isIncreased) "Выше нормы" else "Отличный темп",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
+                            text = "Недостаточно данных за прошлый период для анализа динамики",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                val diff = comparisonData.diff
+                val percentChange = comparisonData.percentChange ?: 0
+                val isIncreased = comparisonData.isIncreased
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = if (isIncreased) "+$percentChange%" else "$percentChange%",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
                             color = if (isIncreased) ExpenseRed else IncomeGreen
                         )
+                        Text(
+                            text = if (isIncreased) {
+                                "Траты выросли на ${CurrencyHelper.formatAmount(kotlin.math.abs(diff), currency)}"
+                            } else {
+                                "Экономия ${CurrencyHelper.formatAmount(kotlin.math.abs(diff), currency)}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isIncreased) ExpenseRed.copy(alpha = 0.12f) else IncomeGreen.copy(alpha = 0.12f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isIncreased) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                                contentDescription = null,
+                                tint = if (isIncreased) ExpenseRed else IncomeGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isIncreased) "Выше темпа" else "Отличный темп",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isIncreased) ExpenseRed else IncomeGreen
+                            )
+                        }
                     }
                 }
             }
@@ -985,17 +1017,54 @@ fun ZenPeriodComparisonCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Текущий период", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(CurrencyHelper.formatAmount(currentExpense, currency), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (comparisonData.isLfl) "Текущий (${comparisonData.daysCompared} дн.)" else "Текущий период",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        CurrencyHelper.formatAmount(comparisonData.currentExpense, currency),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 Text("vs", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Text("Прошлый период", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(CurrencyHelper.formatAmount(prevExpense, currency), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (comparisonData.isLfl) "Прошлый (${comparisonData.daysCompared} дн.)" else "Прошлый период",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (comparisonData.hasEnoughData) CurrencyHelper.formatAmount(comparisonData.prevExpense, currency) else "—",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
     }
+}
+
+@Composable
+fun ZenPeriodComparisonCard(
+    currentExpense: Double,
+    prevExpense: Double,
+    currency: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
+) {
+    ZenPeriodComparisonCard(
+        comparisonData = PeriodComparisonData(
+            hasEnoughData = prevExpense > 0.0,
+            currentExpense = currentExpense,
+            prevExpense = prevExpense,
+            diff = currentExpense - prevExpense,
+            percentChange = if (prevExpense > 0.0) (((currentExpense - prevExpense) / prevExpense) * 100).toInt() else null,
+            isIncreased = (currentExpense - prevExpense) > 0.0
+        ),
+        currency = currency,
+        modifier = modifier,
+        onClick = onClick
+    )
 }
 
 /**

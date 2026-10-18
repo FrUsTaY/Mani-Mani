@@ -532,9 +532,7 @@ fun CategoryExpensesDetailSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeriodComparisonDetailSheet(
-    currentExpense: Double,
-    prevExpense: Double,
-    periodLabel: String,
+    comparisonData: PeriodComparisonData,
     currency: String,
     currentTransactions: List<TransactionEntity>,
     accountsMap: Map<Long, AccountEntity>,
@@ -544,9 +542,7 @@ fun PeriodComparisonDetailSheet(
     receiptTransactionIds: Set<Long> = emptySet(),
     onDismiss: () -> Unit
 ) {
-    val diff = currentExpense - prevExpense
-    val percent = if (prevExpense > 0) ((diff / prevExpense) * 100).toInt() else 0
-    val isIncreased = diff > 0
+    var selectedTab by remember { mutableStateOf(0) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -566,29 +562,37 @@ fun PeriodComparisonDetailSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Сравнение периодов",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Сравнение периодов",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (comparisonData.isLfl) {
+                            "${comparisonData.currentPeriodLabel} vs ${comparisonData.prevPeriodLabel} (день-к-дню, ${comparisonData.daysCompared} дн.)"
+                        } else {
+                            "${comparisonData.currentPeriodLabel} vs ${comparisonData.prevPeriodLabel}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Закрыть")
                 }
             }
 
-            Text(
-                text = periodLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Comparison Metrics Card
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -597,84 +601,311 @@ fun PeriodComparisonDetailSheet(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("Текущий период", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                CurrencyHelper.formatAmount(currentExpense, currency),
+                                text = if (comparisonData.isLfl) "Текущий (${comparisonData.daysCompared} дн.)" else "Текущий период",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                CurrencyHelper.formatAmount(comparisonData.currentExpense, currency),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("Предыдущий период", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                CurrencyHelper.formatAmount(prevExpense, currency),
+                                text = if (comparisonData.isLfl) "Прошлый (${comparisonData.daysCompared} дн.)" else "Прошлый период",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                if (comparisonData.hasEnoughData) CurrencyHelper.formatAmount(comparisonData.prevExpense, currency) else "—",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (comparisonData.hasEnoughData) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isIncreased) "Расходы выросли на" else "Расходы снизились на",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (isIncreased) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
-                                contentDescription = null,
-                                tint = if (isIncreased) ExpenseRed else IncomeGreen,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+                        val diff = comparisonData.diff
+                        val percent = comparisonData.percentChange ?: 0
+                        val isIncreased = comparisonData.isIncreased
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "${if (isIncreased) "+" else ""}${CurrencyHelper.formatAmount(diff, currency)} ($percent%)",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isIncreased) ExpenseRed else IncomeGreen
+                                text = if (isIncreased) "Расходы выросли на" else "Расходы снизились на",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
                             )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isIncreased) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                                    contentDescription = null,
+                                    tint = if (isIncreased) ExpenseRed else IncomeGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${if (isIncreased) "+" else "-"}${CurrencyHelper.formatAmount(kotlin.math.abs(diff), currency)} ($percent%)",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isIncreased) ExpenseRed else IncomeGreen
+                                )
+                            }
                         }
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Данные за прошлый период отсутствуют. Сравнение появится при накоплении истории.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            Text(
-                text = "Операции текущего периода (${currentTransactions.size})",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyColumn(
-                modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            // Switcher Tabs: "Причины изменений" vs "Операции"
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
+                divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)) }
             ) {
-                items(currentTransactions) { tx ->
-                    TransactionItemCard(
-                        transaction = tx,
-                        accountsMap = accountsMap,
-                        categoriesMap = categoriesMap,
-                        goalsMap = goalsMap,
-                        debtsMap = debtsMap,
-                        hasReceipt = receiptTransactionIds.contains(tx.id),
-                        onDelete = { }
-                    )
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = {
+                        Text(
+                            text = "Причины изменений",
+                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = {
+                        Text(
+                            text = "Операции (${currentTransactions.size})",
+                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            when (selectedTab) {
+                0 -> {
+                    // Category deltas list
+                    if (comparisonData.categoryDeltas.isEmpty() || !comparisonData.hasEnoughData) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (!comparisonData.hasEnoughData) {
+                                    "Недостаточно данных за прошлый период для анализа по категориям"
+                                } else {
+                                    "Нет расходов в сравниваемых периодах"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 420.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(comparisonData.categoryDeltas, key = { it.category.id }) { item ->
+                                val cat = item.category
+                                val catColor = IconHelper.parseColor(cat.colorHex)
+                                val diff = item.diff
+                                val isCatIncreased = diff > 0.001
+                                val isCatDecreased = diff < -0.001
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(catColor.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = IconHelper.getIconByName(cat.iconName),
+                                                contentDescription = cat.name,
+                                                tint = catColor,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = cat.name,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "${CurrencyHelper.formatAmount(item.currentAmount, currency)} vs ${CurrencyHelper.formatAmount(item.prevAmount, currency)}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (isCatIncreased || isCatDecreased) {
+                                                    Icon(
+                                                        imageVector = if (isCatIncreased) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                                                        contentDescription = null,
+                                                        tint = if (isCatIncreased) ExpenseRed else IncomeGreen,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(2.dp))
+                                                }
+                                                val diffText = when {
+                                                    isCatIncreased -> "+${CurrencyHelper.formatAmount(diff, currency)}"
+                                                    isCatDecreased -> "-${CurrencyHelper.formatAmount(kotlin.math.abs(diff), currency)}"
+                                                    else -> "0 $currency"
+                                                }
+                                                Text(
+                                                    text = diffText,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = when {
+                                                        isCatIncreased -> ExpenseRed
+                                                        isCatDecreased -> IncomeGreen
+                                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                    }
+                                                )
+                                            }
+
+                                            val pctText = when {
+                                                item.prevAmount <= 0.0 && isCatIncreased -> "Новая"
+                                                item.percentChange != null -> "${if (isCatIncreased) "+" else ""}${item.percentChange}%"
+                                                else -> null
+                                            }
+
+                                            if (pctText != null) {
+                                                Text(
+                                                    text = pctText,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (isCatIncreased) ExpenseRed else IncomeGreen
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    // Operations list
+                    if (currentTransactions.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Нет операций в выбранном периоде",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 420.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(currentTransactions, key = { it.id }) { tx ->
+                                TransactionItemCard(
+                                    transaction = tx,
+                                    accountsMap = accountsMap,
+                                    categoriesMap = categoriesMap,
+                                    goalsMap = goalsMap,
+                                    debtsMap = debtsMap,
+                                    hasReceipt = receiptTransactionIds.contains(tx.id),
+                                    onDelete = { }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PeriodComparisonDetailSheet(
+    currentExpense: Double,
+    prevExpense: Double,
+    periodLabel: String,
+    currency: String,
+    currentTransactions: List<TransactionEntity>,
+    accountsMap: Map<Long, AccountEntity>,
+    categoriesMap: Map<Long, CategoryEntity>,
+    goalsMap: Map<Long, com.example.data.entity.GoalEntity> = emptyMap(),
+    debtsMap: Map<Long, com.example.data.entity.DebtEntity> = emptyMap(),
+    receiptTransactionIds: Set<Long> = emptySet(),
+    onDismiss: () -> Unit
+) {
+    PeriodComparisonDetailSheet(
+        comparisonData = PeriodComparisonData(
+            hasEnoughData = prevExpense > 0.0,
+            currentExpense = currentExpense,
+            prevExpense = prevExpense,
+            diff = currentExpense - prevExpense,
+            percentChange = if (prevExpense > 0.0) (((currentExpense - prevExpense) / prevExpense) * 100).toInt() else null,
+            isIncreased = (currentExpense - prevExpense) > 0.0,
+            currentPeriodLabel = periodLabel,
+            prevPeriodLabel = "Прошлый период"
+        ),
+        currency = currency,
+        currentTransactions = currentTransactions,
+        accountsMap = accountsMap,
+        categoriesMap = categoriesMap,
+        goalsMap = goalsMap,
+        debtsMap = debtsMap,
+        receiptTransactionIds = receiptTransactionIds,
+        onDismiss = onDismiss
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

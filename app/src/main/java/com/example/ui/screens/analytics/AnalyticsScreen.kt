@@ -244,29 +244,29 @@ fun AnalyticsScreen(
         Quad(inc, exp, spendings, txs)
     }
 
-    // Previous period expense for comparison
-    val prevPeriodExpense = remember(state.transactions, state.accounts, state.baseCurrency) {
-        val thirtyDaysMs = 30L * 86_400_000L
-        val prevStart = now - (2 * thirtyDaysMs)
-        val prevEnd = now - thirtyDaysMs
-        state.transactions.filter {
-            it.timestamp in prevStart..prevEnd && !it.excludeFromStats
-        }.sumOf { tx ->
-            val acc = state.accounts.find { it.id == tx.accountId }
-            val toAcc = state.accounts.find { it.id == tx.toAccountId }
-            val accInAnalytics = acc?.includeInAnalytics ?: true
-            val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
-            
-            val convertedAmount = CurrencyHelper.convert(tx.amount, acc?.currency ?: state.baseCurrency, state.baseCurrency)
-
-            if (tx.type == "EXPENSE" && accInAnalytics) {
-                convertedAmount
-            } else if (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics) {
-                convertedAmount
-            } else {
-                0.0
-            }
-        }
+    // Period comparison calculation (LFL, synchronization with selectedPeriodType, category deltas)
+    val periodComparisonData = remember(
+        selectedPeriodType,
+        state.transactions,
+        state.accounts,
+        state.categories,
+        state.debts,
+        state.baseCurrency,
+        activePaydayPeriod,
+        state.payday
+    ) {
+        PeriodComparisonHelper.calculate(
+            periodType = selectedPeriodType,
+            transactions = state.transactions,
+            accounts = state.accounts,
+            categoriesMap = categoriesMap,
+            debtsMap = debtsMap,
+            baseCurrency = state.baseCurrency,
+            activePaydayPeriod = activePaydayPeriod,
+            targetPayday = state.payday,
+            preferences = preferences,
+            now = now
+        )
     }
 
     // Planning metrics calculation (unified with ZenPlans calculation)
@@ -417,15 +417,16 @@ fun AnalyticsScreen(
                 }
             }
 
-            // 4. Card 3: "Сравнение периодов"
-            item {
-                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    ZenPeriodComparisonCard(
-                        currentExpense = filteredExpense,
-                        prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else (filteredExpense * 0.88),
-                        currency = state.baseCurrency,
-                        onClick = { showPeriodComparisonSheet = true }
-                    )
+            // 4. Card 3: "Сравнение периодов" (скрывается, если выбран период "Все время")
+            if (periodComparisonData.isAvailable) {
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        ZenPeriodComparisonCard(
+                            comparisonData = periodComparisonData,
+                            currency = state.baseCurrency,
+                            onClick = { showPeriodComparisonSheet = true }
+                        )
+                    }
                 }
             }
 
@@ -500,21 +501,10 @@ fun AnalyticsScreen(
 
     // Detail Bottom Sheet: Сравнение периодов
     if (showPeriodComparisonSheet) {
-        val expenseTransactions = remember(filteredTxs, state.accounts) {
-            filteredTxs.filter { tx ->
-                val acc = state.accounts.find { it.id == tx.accountId }
-                val toAcc = state.accounts.find { it.id == tx.toAccountId }
-                val accInAnalytics = acc?.includeInAnalytics ?: true
-                val toAccInAnalytics = toAcc?.includeInAnalytics ?: true
-                (tx.type == "EXPENSE" && accInAnalytics) || (tx.type == "TRANSFER" && accInAnalytics && !toAccInAnalytics)
-            }
-        }
         PeriodComparisonDetailSheet(
-            currentExpense = filteredExpense,
-            prevExpense = if (prevPeriodExpense > 0) prevPeriodExpense else (filteredExpense * 0.88),
-            periodLabel = periodLabel,
+            comparisonData = periodComparisonData,
             currency = state.baseCurrency,
-            currentTransactions = expenseTransactions,
+            currentTransactions = periodComparisonData.currentTransactions,
             accountsMap = accountsMap,
             categoriesMap = categoriesMap,
             goalsMap = goalsMap,
