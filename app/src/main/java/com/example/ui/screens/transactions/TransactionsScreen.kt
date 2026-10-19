@@ -89,20 +89,9 @@ fun TransactionsScreen(
 
     val listState = rememberLazyListState()
 
-    // Lazy load next page when scrolled near the bottom
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val totalItems = layoutInfo.totalItemsCount
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            totalItems > 0 && lastVisible >= totalItems - 5 && historyTransactions.size < historySummary.totalCount
-        }
-    }
-
-    LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) {
-            onLoadMore()
-        }
+    // Reset scroll position to top when period or custom range changes
+    LaunchedEffect(selectedPeriod, customRange) {
+        listState.scrollToItem(0)
     }
 
     // Date range picker dialog for CUSTOM period
@@ -147,8 +136,15 @@ fun TransactionsScreen(
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 )
             ) {
+                val isFilterActive = searchQuery.isNotBlank() || selectedTypeFilter != "ALL" || selectedAccountIdFilter != null
+                val totalPeriodCount = historyTransactions.size
+                val badgeText = if (!isFilterActive || filteredTransactions.size == totalPeriodCount) {
+                    HistoryPeriodHelper.formatOperationsCount(totalPeriodCount)
+                } else {
+                    HistoryPeriodHelper.formatFilteredOperationsCount(filteredTransactions.size, totalPeriodCount)
+                }
                 Text(
-                    text = HistoryPeriodHelper.formatOperationsCount(filteredTransactions.size),
+                    text = badgeText,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -179,7 +175,7 @@ fun TransactionsScreen(
 
         HistoryPeriodSummaryCard(
             periodTitle = periodTitle,
-            totalCount = historySummary.totalCount,
+            totalCount = historyTransactions.size,
             totalExpense = historySummary.totalExpense,
             baseCurrency = state.baseCurrency,
             isCustomPeriod = selectedPeriod == HistoryPeriodType.CUSTOM,

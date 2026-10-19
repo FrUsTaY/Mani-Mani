@@ -499,9 +499,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val historyTransactions: StateFlow<List<TransactionEntity>> = combine(
         _historyPeriodType,
-        _historyCustomRange,
-        _historyLimit
-    ) { type, customRange, limit ->
+        _historyCustomRange
+    ) { type, customRange ->
         val bounds = when (type) {
             com.example.ui.screens.transactions.HistoryPeriodType.WEEK -> {
                 val (start, end) = com.example.ui.screens.transactions.HistoryPeriodHelper.getWeekRange()
@@ -517,9 +516,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 Pair(start as Long?, end as Long?)
             }
         }
-        Triple(bounds.first, bounds.second, limit)
-    }.flatMapLatest { (start, end, limit) ->
-        repository.getHistoryTransactions(start, end, limit)
+        Pair(bounds.first, bounds.second)
+    }.flatMapLatest { (start, end) ->
+        repository.getHistoryTransactions(start, end)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -529,7 +528,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun setHistoryPeriodType(type: com.example.ui.screens.transactions.HistoryPeriodType) {
         _historyPeriodType.value = type
         userFinancePrefs.setHistoryPeriodType(type.name)
-        _historyLimit.value = 50
     }
 
     fun setHistoryCustomRange(startTime: Long, endTime: Long) {
@@ -538,10 +536,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         userFinancePrefs.setHistoryCustomRange(normalized.first, normalized.second)
         _historyPeriodType.value = com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM
         userFinancePrefs.setHistoryPeriodType(com.example.ui.screens.transactions.HistoryPeriodType.CUSTOM.name)
-        _historyLimit.value = 50
     }
 
     fun loadMoreHistoryTransactions() {
+        // No-op: all transactions for selected period are loaded dynamically
         _historyLimit.update { it + 50 }
     }
 

@@ -63,11 +63,19 @@ class FinanceRepository(private val db: AppDatabase) {
         }
     }
 
-    fun getHistoryTransactions(startTime: Long?, endTime: Long?, limit: Int): Flow<List<TransactionEntity>> {
-        return if (startTime != null && endTime != null) {
-            transactionDao.getTransactionsBetweenPaged(startTime, endTime, limit)
+    fun getHistoryTransactions(startTime: Long?, endTime: Long?, limit: Int? = null): Flow<List<TransactionEntity>> {
+        return if (limit != null) {
+            if (startTime != null && endTime != null) {
+                transactionDao.getTransactionsBetweenPaged(startTime, endTime, limit)
+            } else {
+                transactionDao.getAllTransactionsPaged(limit)
+            }
         } else {
-            transactionDao.getAllTransactionsPaged(limit)
+            if (startTime != null && endTime != null) {
+                transactionDao.getTransactionsBetween(startTime, endTime)
+            } else {
+                transactionDao.getAllTransactions()
+            }
         }
     }
 

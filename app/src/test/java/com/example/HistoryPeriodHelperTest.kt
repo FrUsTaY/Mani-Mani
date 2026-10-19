@@ -161,4 +161,13 @@ class HistoryPeriodHelperTest {
         )
         assertTrue(customLabel.contains("01") && customLabel.contains("30") && customLabel.contains("—"))
     }
+
+    @Test
+    fun `test format filtered operations count`() {
+        assertEquals("120 операций", HistoryPeriodHelper.formatFilteredOperationsCount(120, 120))
+        assertEquals("14 из 120", HistoryPeriodHelper.formatFilteredOperationsCount(14, 120))
+        assertEquals("1 операция", HistoryPeriodHelper.formatFilteredOperationsCount(1, 1))
+        assertEquals("0 операций", HistoryPeriodHelper.formatFilteredOperationsCount(0, 0))
+        assertEquals("0 из 15", HistoryPeriodHelper.formatFilteredOperationsCount(0, 15))
+    }
 }

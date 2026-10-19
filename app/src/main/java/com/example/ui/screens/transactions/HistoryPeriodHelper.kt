@@ -162,4 +162,12 @@ object HistoryPeriodHelper {
         val formattedCount = DecimalFormat("#,##0", symbols).format(count)
         return "$formattedCount $word"
     }
+
+    fun formatFilteredOperationsCount(filteredCount: Int, totalCount: Int): String {
+        return if (filteredCount >= totalCount) {
+            formatOperationsCount(totalCount)
+        } else {
+            "$filteredCount из $totalCount"
+        }
+    }
 }
