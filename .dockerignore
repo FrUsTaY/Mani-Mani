@@ -1,0 +1,37 @@
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+
+# Python environment and cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local sensitive runtime data & databases
+data/
+user_data/
+exports/
+scratch/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local environment & certificates
+.env
+*.cer
+*.crt
+*.pem

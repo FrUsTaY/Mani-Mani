@@ -1,0 +1,36 @@
+services:
+  sync-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mani_mani_sync_lab
+    restart: unless-stopped
+    ports:
+      - "${SYNC_LAB_PORT:-8000}:8000"
+    environment:
+      - SYNC_LAB_DATA_DIR=/data
+      - SYNC_LAB_LOG_LEVEL=${SYNC_LAB_LOG_LEVEL:-INFO}
+      - SYNC_LAB_PORT=8000
+      - SYNC_LAB_ALLOWED_ORIGINS=${SYNC_LAB_ALLOWED_ORIGINS:-*}
+      - SYNC_LAB_HEADLESS=true
+    volumes:
+      - "${SYNC_LAB_HOST_DATA_DIR:-./data}:/data"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
