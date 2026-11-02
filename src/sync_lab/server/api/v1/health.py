@@ -17,13 +17,11 @@ START_TIME = time.time()
 @router.get("/health", response_model=HealthResponse)
 async def check_health(repo: SqliteTransactionRepository = Depends(get_repository)):
     """Health check endpoint used by Docker HEALTHCHECK and monitoring tools."""
-    # Test DB query
+    # Test DB query safely without leaking private multi-tenant metrics
     with repo._get_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM bank_accounts")
-        acc_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM normalized_transactions")
-        tx_count = cur.fetchone()[0]
+        cur.execute("SELECT 1")
+        cur.fetchone()
 
     return HealthResponse(
         status="ok",
@@ -31,6 +29,4 @@ async def check_health(repo: SqliteTransactionRepository = Depends(get_repositor
         database="connected",
         timestamp=int(time.time() * 1000),
         uptime_seconds=round(time.time() - START_TIME, 2),
-        total_accounts=acc_count,
-        total_transactions=tx_count,
     )

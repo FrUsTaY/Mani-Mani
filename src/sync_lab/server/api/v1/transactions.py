@@ -19,6 +19,7 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
 @router.get("", response_model=PaginatedTransactionsResponse)
 async def list_transactions(
     account_last4: Optional[str] = Query(None, description="Filter by account/card last 4 digits"),
+    account_product_id: Optional[str] = Query(None, description="Filter by bank account product ID"),
     type: Optional[TransactionType] = Query(None, description="Operation type: EXPENSE, INCOME, TRANSFER"),
     from_timestamp: Optional[int] = Query(None, description="Start date range in epoch milliseconds"),
     to_timestamp: Optional[int] = Query(None, description="End date range in epoch milliseconds"),
@@ -36,6 +37,7 @@ async def list_transactions(
     total = repo.count_normalized_transactions(
         user_id=current_user.id,
         account_last4=account_last4,
+        account_product_id=account_product_id,
         tx_type=type,
         from_timestamp=from_timestamp,
         to_timestamp=to_timestamp,
@@ -46,6 +48,7 @@ async def list_transactions(
     transactions = repo.get_normalized_transactions(
         user_id=current_user.id,
         account_last4=account_last4,
+        account_product_id=account_product_id,
         tx_type=type,
         from_timestamp=from_timestamp,
         to_timestamp=to_timestamp,
@@ -68,11 +71,14 @@ async def list_transactions(
             mcc=tx.mcc,
             card_last4=tx.card_last4,
             account_last4=tx.account_last4,
+            account_product_id=tx.account_product_id,
             balance_after=tx.balance_after,
             fee=tx.fee,
             status=tx.status,
             category_suggestion=tx.category_suggestion,
             is_internal_transfer=tx.is_internal_transfer,
+            created_at=tx.created_at,
+            updated_at=tx.updated_at,
         )
         for tx in transactions
     ]
@@ -114,9 +120,12 @@ async def get_transaction(
         mcc=tx.mcc,
         card_last4=tx.card_last4,
         account_last4=tx.account_last4,
+        account_product_id=tx.account_product_id,
         balance_after=tx.balance_after,
         fee=tx.fee,
         status=tx.status,
         category_suggestion=tx.category_suggestion,
         is_internal_transfer=tx.is_internal_transfer,
+        created_at=tx.created_at,
+        updated_at=tx.updated_at,
     )

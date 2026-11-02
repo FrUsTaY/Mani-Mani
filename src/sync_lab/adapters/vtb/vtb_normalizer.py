@@ -6,12 +6,14 @@ Extends the core BaseTransactionNormalizer with bank-specific rules for VTB Onli
 - Correctly uses the `debet` boolean flag (True = EXPENSE, False = INCOME)
 - Identifies internal transfers ("Между своими счетами") -> TRANSFER
 - Disentangles commission fees (feeAmount) and balances from the transaction amount.
+- Extracts stable accountProductId for direct account matching in Mani-Mani.
 
 Reusability Guide:
 1. Reusable / Android mapping:
    - Normalization logic directly translates into Kotlin parsing rules in Mani-Mani.
 """
 
+import re
 from typing import Optional
 from sync_lab.core.normalizer import BaseTransactionNormalizer
 from sync_lab.core.models import (
@@ -135,8 +137,6 @@ class VtbTransactionNormalizer(BaseTransactionNormalizer):
         if isinstance(raw_data, dict):
             acc_val = str(raw_data.get("account") or "")
             if acc_val:
-                # Extract 4 digits if present (e.g. *6708 -> 6708)
-                import re
                 digits = re.findall(r"\d{4}", acc_val)
                 if digits:
                     account_last4 = digits[-1]
@@ -194,20 +194,26 @@ class VtbTransactionNormalizer(BaseTransactionNormalizer):
                 elif "отклон" in raw_st or "declin" in raw_st or "cancel" in raw_st:
                     status = "FAILED"
 
-        # 9. Stable Unique Bank Transaction ID
+        # 9. Stable Unique Bank Transaction ID and accountProductId
         # VTB's `operationId` is an ephemeral session/request UUID generated on each API call.
         # The true persistent transaction identifier in VTB's core banking is `internalId` (or `rrn`).
         # For transfers between own accounts (TRANSFER), the same internalId connects two distinct entries:
         # 1) Debit on source account (debet=True)
         # 2) Credit on destination account (debet=False)
         # Therefore, unique entry key is: f"vtb_{internalId}_{account_identifier}_{direction}"
+        account_product_id = None
+        if isinstance(raw_data, dict):
+            prod_val = raw_data.get("accountProductId")
+            if prod_val:
+                account_product_id = str(prod_val)
+
         internal_id = None
         if isinstance(raw_data, dict):
             internal_id = raw_data.get("internalId") or raw_data.get("rrn")
 
         if internal_id:
             direction_code = "dr" if debet is True else ("cr" if debet is False else "tx")
-            acc_code = account_last4 or (str(raw_data.get("accountProductId"))[-8:] if isinstance(raw_data, dict) and raw_data.get("accountProductId") else "acc")
+            acc_code = account_last4 or (account_product_id[-8:] if account_product_id else "acc")
             stable_bank_id = f"vtb_{internal_id}_{acc_code}_{direction_code}"
         else:
             stable_bank_id = raw.raw_id
@@ -225,6 +231,7 @@ class VtbTransactionNormalizer(BaseTransactionNormalizer):
             mcc=mcc,
             card_last4=card_last4,
             account_last4=account_last4,
+            account_product_id=account_product_id,
             balance_after=None,
             fee=fee,
             status=status,

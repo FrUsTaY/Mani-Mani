@@ -9,9 +9,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8000 \
     PYTHONPATH=/app/src \
-    SYNC_LAB_DATA_DIR=/data
+    SYNC_LAB_DATA_DIR=/data \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Install minimal system dependencies (curl for health check)
+# Install minimal system dependencies (curl for health check, ca-certificates)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -21,14 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -g 10001 appuser && \
     useradd -u 10001 -g appuser -s /bin/sh -m appuser
 
-# Set up application workspace and persistent data mount directory
+# Set up application workspace and persistent data mount directories
 WORKDIR /app
-RUN mkdir -p /data && chown -R appuser:appuser /data /app
+RUN mkdir -p /data /ms-playwright && chown -R appuser:appuser /data /app /ms-playwright
 
 # Install Python dependencies first for layer caching
 COPY --chown=appuser:appuser requirements.txt pyproject.toml README.md ./
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir -e .
+
+# Install Playwright browser and Linux OS shared libraries for headless Chromium
+RUN python -m playwright install --with-deps chromium && \
+    rm -rf /var/lib/apt/lists/* && \
+    chown -R appuser:appuser /ms-playwright
 
 # Copy application source code
 COPY --chown=appuser:appuser src/ ./src/

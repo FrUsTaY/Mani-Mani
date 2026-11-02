@@ -31,12 +31,17 @@ class Settings:
     _data_dir_env = os.getenv("SYNC_LAB_DATA_DIR")
     if _data_dir_env:
         DATA_DIR: Path = Path(_data_dir_env).resolve()
+    elif (PROJECT_ROOT / "sync-lab" / "data" / "sync_lab.db").exists():
+        DATA_DIR: Path = (PROJECT_ROOT / "sync-lab" / "data").resolve()
     else:
         DATA_DIR: Path = (PROJECT_ROOT / "data").resolve()
 
     DB_PATH: Path = DATA_DIR / os.getenv("SYNC_LAB_DB_NAME", "sync_lab.db")
     EXPORTS_DIR: Path = DATA_DIR / "exports"
     USER_DATA_DIR: Path = DATA_DIR / "browser_profiles"
+
+    # Browser & Automation
+    HEADLESS: bool = os.getenv("SYNC_LAB_HEADLESS", "true").lower() in ("true", "1", "yes")
 
     # Application
     LOG_LEVEL: str = os.getenv("SYNC_LAB_LOG_LEVEL", "INFO")
@@ -49,10 +54,11 @@ class Settings:
     DEFAULT_USER_ID: str = "default_user"
     DEFAULT_USERNAME: str = "default_user"
 
-    # CORS
+    # CORS (supports both SYNC_LAB_ALLOWED_ORIGINS and SYNC_LAB_CORS_ORIGINS)
+    _cors_raw = os.getenv("SYNC_LAB_ALLOWED_ORIGINS") or os.getenv("SYNC_LAB_CORS_ORIGINS", "*")
     CORS_ORIGINS: List[str] = [
         origin.strip()
-        for origin in os.getenv("SYNC_LAB_CORS_ORIGINS", "*").split(",")
+        for origin in _cors_raw.split(",")
         if origin.strip()
     ]
 

@@ -22,11 +22,13 @@
 
 ## 1. Архитектура и безопасность
 
-- **Стек**: Python 3.11, FastAPI, Uvicorn, SQLite3 (режим WAL), Docker Compose.
+- **Стек**: Python 3.11, FastAPI, Uvicorn, SQLite3 (режим WAL), Playwright (Chromium headless), Docker Compose.
 - **Изоляция привилегий**: Контейнер работает от имени непривилегированного пользователя `appuser` (UID `10001`, GID `10001`). Запуск от `root` запрещён.
 - **Хранение данных**: База данных SQLite монтируется через Docker Volume (`/data`), данные хранятся на хост-системе вне контейнера.
 - **Мультитенантность**: Полная изоляция операций и счетов по `user_id`.
-- **Аутентификация**: Авторизация клиентов (Android-приложения) осуществляется по криптографическим токенам (`sk_live_...`). В базе данных хранятся исключительно SHA-256 хэши ключей. В открытом виде ключ показывается только один раз при генерации.
+- **Сопоставление счетов**: Каждый счёт и операция несут стабильный `accountProductId` для сопоставления со счетами Android-приложения Mani-Mani.
+- **Инкрементальная синхронизация**: Запросы с `since_timestamp` извлекают операции не только по дате транзакции, но и по времени поступления в систему (`updated_at`), гарантируя, что операции, поступившие из банка с задержкой (холды, отложенный клиринг), не будут утеряны.
+- **Аутентификация**: Авторизация клиентов осуществляется по криптографическим токенам (`sk_live_...`). В базе данных хранятся исключительно SHA-256 хэши ключей. В открытом виде ключ показывается только один раз при генерации.
 
 ---
 
@@ -34,7 +36,7 @@
 
 - **ОС**: Ubuntu Server 24.04 LTS (Noble Numbat) x86_64 или aarch64.
 - **CPU**: минимум 1 vCPU (рекомендуется 2 vCPU).
-- **RAM**: минимум 1 ГБ (рекомендуется 2 ГБ для стабильной работы и фоновых задач).
+- **RAM**: минимум 1 ГБ (рекомендуется 2 ГБ для стабильной работы Playwright Chromium).
 - **Диск**: 10 ГБ свободного пространства (SSD/NVMe).
 - **Сетевые порты**: 8000 TCP (или 80/443 при использовании обратного прокси Nginx).
 
@@ -79,8 +81,8 @@ docker compose version
 sudo mkdir -p /opt/sync-lab
 cd /opt/sync-lab
 
-# Клонирование или копирование файлов проекта (ветка feature/sync-lab-server)
-# Файлы: Dockerfile, docker-compose.yml, .env.example, requirements.txt, pyproject.toml, src/
+# Клонирование ветки sync-lab-server (в корне только сервис)
+git clone -b sync-lab-server https://github.com/FrUsTaY/Mani-Mani.git .
 ```
 
 ### Настройка прав доступа к директории базы данных
@@ -121,7 +123,7 @@ SYNC_LAB_LOG_LEVEL=INFO
 # Разрешённые CORS-источники (* для мобильных приложений)
 SYNC_LAB_ALLOWED_ORIGINS=*
 
-# Режим headless для браузерного сборщика
+# Режим headless для браузерного сборщика (true для сервера)
 SYNC_LAB_HEADLESS=true
 ```
 
@@ -158,7 +160,7 @@ INFO: Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 
 ## 7. Управление пользователями и API-ключами
 
-Все административные команды выполняются через CLI внутри запущенного контейнера с сохранением в примонтированную базу.
+Все административные команды выполняются через CLI внутри запущенного контейнера. CLI поддерживает как флаги (`--username`, `--user-id`, `--name`, `--prefix`), так и позиционные аргументы.
 
 ### Шаг 7.1. Создание пользователя
 
@@ -176,7 +178,7 @@ User created successfully:
 
 ### Шаг 7.2. Генерация API-ключа
 
-Сгенерируйте токен для приложения, указав `ID` пользователя:
+Сгенерируйте токен для приложения, указав `ID` или имя пользователя:
 
 ```bash
 docker compose exec sync-lab python -m sync_lab.cli api-key create \
@@ -187,15 +189,13 @@ docker compose exec sync-lab python -m sync_lab.cli api-key create \
 Пример вывода:
 ```text
 API Key generated successfully!
-Store this key securely. It cannot be recovered later!
+IMPORTANT: Store this key securely. It cannot be recovered later!
 
-  Raw Secret Key:  sk_live_qT9VbX90KjA2_... (скопируйте этот токен!)
+  Raw Secret Key:  sk_live_qT9VbX90KjA2_... (сохраните этот токен в приложении!)
   Prefix:          sk_live_qT9V...
-  User ID:         usr_5a278696ad0ec754
+  User ID:         usr_5a278696ad0ec754 (android_client)
   Name:            Samsung S24 Ultra
 ```
-
-> **Важно**: Сохраните `Raw Secret Key`. В базе данных сохраняется только SHA-256 хэш, восстановить исходный ключ невозможно.
 
 ### Шаг 7.3. Просмотр списка активных ключей
 
@@ -219,12 +219,12 @@ docker compose exec sync-lab python -m sync_lab.cli api-key revoke --prefix "sk_
 curl -i http://localhost:8000/health
 ```
 
-Ожидаемый ответ:
+Ожидаемый ответ (без утечки конфиденциальных данных арендаторов):
 ```json
 HTTP/1.1 200 OK
 content-type: application/json
 
-{"status":"ok","database":"connected","uptime_seconds":15.42}
+{"status":"ok","version":"0.2.0","database":"connected","uptime_seconds":15.42}
 ```
 
 ### 8.2. Проверка неавторизованного доступа (ожидается 401 Unauthorized)
@@ -242,22 +242,44 @@ HTTP/1.1 401 Unauthorized
 ### 8.3. Запрос счетов с авторизацией
 
 ```bash
-curl -s -H "X-API-Key: sk_live_ВАШ_КЛЮЧ" http://localhost:8000/api/v1/accounts | jq .
+curl -s -H "X-API-Key: sk_live_ВАШ_КЛЮЧ" http://localhost:8000/api/v1/accounts
+```
+
+Пример ответа:
+```json
+{
+  "items": [
+    {
+      "id": "1002345678",
+      "bank_name": "ВТБ",
+      "name": "Карта для жизни *6708",
+      "account_type": "DEBIT",
+      "balance": 45230.5,
+      "currency": "RUB",
+      "card_last4": "6708",
+      "account_last4": "6708",
+      "account_product_id": "1002345678",
+      "is_blocked": false
+    }
+  ],
+  "total": 1
+}
 ```
 
 ### 8.4. Запрос транзакций с пагинацией
 
 ```bash
 curl -s -H "X-API-Key: sk_live_ВАШ_КЛЮЧ" \
-  "http://localhost:8000/api/v1/transactions?limit=20&offset=0" | jq .
+  "http://localhost:8000/api/v1/transactions?limit=20&offset=0"
 ```
 
 ### 8.5. Инкрементальная синхронизация (получение операций после timestamp)
 
 ```bash
 curl -s -H "X-API-Key: sk_live_ВАШ_КЛЮЧ" \
-  "http://localhost:8000/api/v1/transactions?since_timestamp=1772600000000" | jq .
+  "http://localhost:8000/api/v1/transactions?since_timestamp=1772600000000"
 ```
+> Автоматически возвращает как новые операции с датой позже указанной, так и операции, поступившие из банка с задержкой (у которых время фиксации на сервере `updated_at` больше `since_timestamp`).
 
 ---
 
@@ -307,12 +329,12 @@ echo "Бэкап успешно создан: /opt/sync-lab/backups/sync_lab_bac
 # 1. Останавливаем сервис
 docker compose stop sync-lab
 
-# 2. Архивируем текущую повреждённую базу (на всякий случай)
+# 2. Архивируем текущую базу (на всякий случай)
 sudo mv /opt/sync-lab/data/sync_lab.db /opt/sync-lab/data/sync_lab_corrupted_$(date +%s).db
 sudo rm -f /opt/sync-lab/data/sync_lab.db-wal /opt/sync-lab/data/sync_lab.db-shm
 
 # 3. Распаковываем и восстанавливаем целевой бэкап
-sudo gunzip -c /opt/sync-lab/backups/sync_lab_backup_20261102_120000.db.gz > /opt/sync-lab/data/sync_lab.db
+sudo gunzip -c /opt/sync-lab/backups/sync_lab_backup_YYYYMMDD_HHMMSS.db.gz > /opt/sync-lab/data/sync_lab.db
 
 # 4. Проверяем владельца файла (UID 10001)
 sudo chown 10001:10001 /opt/sync-lab/data/sync_lab.db
@@ -335,7 +357,7 @@ curl -s http://localhost:8000/health
 ```bash
 cd /opt/sync-lab
 
-# 1. Создаём резервную копию базы перед обновлением (обязательно!)
+# 1. Создаём резервную копию базы перед обновлением
 docker compose exec sync-lab python -c "
 import sqlite3
 s = sqlite3.connect('/data/sync_lab.db')
@@ -344,7 +366,7 @@ s.backup(d); d.close(); s.close()
 "
 
 # 2. Получаем обновлённый код из Git
-git pull origin feature/sync-lab-server
+git pull origin sync-lab-server
 
 # 3. Пересобираем контейнер с новым кодом
 docker compose build --no-cache sync-lab
@@ -360,13 +382,13 @@ docker compose logs --tail=30 sync-lab
 curl -f http://localhost:8000/health
 ```
 
-Все таблицы SQLite автоматически обновляются внутренними схемами миграций `_init_db()` и `_migrate_schema()` без удаления существующих транзакций и пользователей.
+Все таблицы SQLite автоматически обновляются внутренними схемами миграций `_init_db()` и `_migrate_schema_if_needed()` без удаления существующих данных.
 
 ---
 
 ## 11. Рекомендации по сетевой безопасности и SSL (Nginx / Certbot)
 
-Для взаимодействия мобильного приложения с сервером через Интернет обязательно настройте обратный прокси с HTTPS:
+Для взаимодействия мобильного приложения с сервером через Интернет настройте обратный прокси с HTTPS:
 
 ```nginx
 # /etc/nginx/sites-available/sync-lab.conf
@@ -380,7 +402,6 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Таймауты для стабильного удержания соединений
         proxy_connect_timeout 60s;
         proxy_read_timeout 60s;
     }

@@ -30,6 +30,7 @@ async def list_accounts(
             currency=acc.currency,
             card_last4=acc.card_last4,
             account_last4=acc.account_last4,
+            account_product_id=acc.account_product_id or acc.raw_details.get("accountProductId") or acc.id,
             is_blocked=acc.is_blocked,
         )
         for acc in accounts
@@ -60,5 +61,6 @@ async def get_account(
         currency=match.currency,
         card_last4=match.card_last4,
         account_last4=match.account_last4,
+        account_product_id=match.account_product_id or match.raw_details.get("accountProductId") or match.id,
         is_blocked=match.is_blocked,
     )

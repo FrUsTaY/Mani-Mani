@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -29,7 +30,7 @@ from sync_lab.core.models import RawBankTransaction, BankAccountInfo, AccountTyp
 from sync_lab.storage.sqlite_repo import SqliteTransactionRepository
 
 console = Console()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO), format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 
 def get_paths():
@@ -40,9 +41,10 @@ async def run_test_auth(args):
     user_data_dir, _, _ = get_paths()
     console.print("[bold cyan]=== Mani-Mani Sync Lab: VTB Online Authentication Test ===[/bold cyan]")
     console.print(f"Profile directory: [yellow]{user_data_dir}[/yellow]")
-    console.print("Launching browser with persistent profile (manual login mode)...")
+    console.print(f"Browser mode: [bold]{'Headless (Server)' if args.headless else 'Visible UI (Desktop)'}[/bold]")
+    console.print("Launching browser with persistent profile...")
 
-    adapter = VtbBankAdapter(user_data_dir=user_data_dir, headless=False)
+    adapter = VtbBankAdapter(user_data_dir=user_data_dir, headless=args.headless)
     try:
         await adapter.initialize()
         await adapter.open_login_page()
@@ -56,7 +58,7 @@ async def run_test_auth(args):
         else:
             console.print("[yellow]User is not authenticated yet (or requires more time). Session state is preserved.[/yellow]")
     finally:
-        if not args.keep_open:
+        if not getattr(args, "keep_open", False):
             await adapter.close()
             console.print("Browser closed.")
         else:
@@ -71,7 +73,8 @@ async def run_sync(args):
     normalizer = VtbTransactionNormalizer()
 
     console.print("[bold cyan]=== Mani-Mani Sync Lab: VTB Online Full Synchronization Probe ===[/bold cyan]")
-    adapter = VtbBankAdapter(user_data_dir=user_data_dir, headless=False)
+    console.print(f"Browser mode: [bold]{'Headless (Server)' if args.headless else 'Visible UI (Desktop)'}[/bold]")
+    adapter = VtbBankAdapter(user_data_dir=user_data_dir, headless=args.headless)
     try:
         await adapter.initialize()
         await adapter.open_login_page()
@@ -104,50 +107,95 @@ async def run_sync(args):
                     normalized.append(norm)
 
             dedup_normalized = list({tx.bank_id: tx for tx in normalized}.values())
-            saved_count = repo.save_normalized_transactions(dedup_normalized, user_id=args.user_id)
-            console.print(f"[bold green]Successfully normalized and saved {saved_count} unique verified transactions (raw captured: {len(raw_txs)})![/bold green]")
+            saved = repo.save_normalized_transactions(dedup_normalized, user_id=args.user_id)
+            console.print(f"[bold green]Normalized and saved {saved} unique transactions to SQLite.[/bold green]")
 
-            # 4. Export JSON
-            export_file = export_dir / "vtb_transactions.json"
-            repo.export_to_json(export_file, user_id=args.user_id)
-            console.print(f"[bold green]Exported Mani-Mani compatible JSON to: {export_file}[/bold green]")
+            # 4. Auto-export to JSON
+            export_path = export_dir / f"vtb_sync_{args.user_id}.json"
+            repo.export_to_json(export_path, user_id=args.user_id)
+            console.print(f"[green]Exported snapshot to {export_path}[/green]")
         else:
-            console.print("[yellow]No transactions captured. Check if history section finished loading.[/yellow]")
-
+            console.print("[yellow]No raw transactions intercepted during sync session.[/yellow]")
     finally:
         await adapter.close()
-        console.print("Sync process finished.")
 
 
-def run_reprocess(user_id: str = "default_user"):
-    _, db_path, export_dir = get_paths()
+def run_status(user_id: str):
+    _, db_path, _ = get_paths()
     if not db_path.exists():
-        console.print(f"[red]Database not found at {db_path}[/red]")
+        console.print(f"[yellow]Database not found at {db_path}[/yellow]")
         return
 
-    console.print(f"[bold cyan]Reprocessing stored raw transactions from: {db_path}[/bold cyan]")
+    repo = SqliteTransactionRepository(db_path)
+    accounts = repo.get_accounts(user_id=user_id)
+    raw_count = 0
+    with repo._get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM raw_transactions WHERE user_id = ?", (user_id,))
+        raw_count = cur.fetchone()[0]
+
+    normalized = repo.get_normalized_transactions(user_id=user_id, limit=25)
+    total_norm = repo.count_normalized_transactions(user_id=user_id)
+
+    console.print(f"[bold cyan]Database: {db_path} (User: {user_id})[/bold cyan]")
+    console.print(f"Summary: Accounts: [green]{len(accounts)}[/green] | Raw: [yellow]{raw_count}[/yellow] | Normalized: [green]{total_norm}[/green]")
+
+    if normalized:
+        table = Table(title=f"Stored Normalized Transactions (Showing latest {len(normalized)} of {total_norm})")
+        table.add_column("Date (UTC)", style="cyan")
+        table.add_column("Type", style="magenta")
+        table.add_column("Amount", justify="right", style="green")
+        table.add_column("Cur", style="white")
+        table.add_column("Description", style="white")
+        table.add_column("Account", style="yellow")
+        table.add_column("Status", style="bold")
+
+        for tx in normalized:
+            import datetime
+            dt_str = datetime.datetime.fromtimestamp(tx.timestamp / 1000, tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
+            acc_str = tx.account_last4 or tx.card_last4 or "-"
+            table.add_row(
+                dt_str,
+                tx.type.value,
+                f"{tx.amount:.2f}",
+                tx.currency,
+                tx.description[:30],
+                acc_str,
+                tx.status
+            )
+        console.print(table)
+
+
+def run_export(output: str, user_id: str):
+    _, db_path, export_dir = get_paths()
+    repo = SqliteTransactionRepository(db_path)
+    out_path = Path(output) if output else export_dir / f"mani_mani_export_{user_id}.json"
+    repo.export_to_json(out_path, user_id=user_id)
+    console.print(f"[bold green]Successfully exported JSON to {out_path}[/bold green]")
+
+
+def run_reprocess(user_id: str):
+    _, db_path, _ = get_paths()
     repo = SqliteTransactionRepository(db_path)
     normalizer = VtbTransactionNormalizer()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM raw_transactions WHERE user_id = ?", (user_id,))
-    rows = c.fetchall()
-    conn.close()
+    console.print(f"[bold cyan]Reprocessing raw transactions for user '{user_id}'...[/bold cyan]")
+
+    with repo._get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM raw_transactions WHERE user_id = ?", (user_id,))
+        rows = cur.fetchall()
 
     if not rows:
-        console.print(f"[yellow]No raw transactions in database for user '{user_id}'.[/yellow]")
+        console.print("[yellow]No raw transactions found to reprocess.[/yellow]")
         return
-
-    console.print(f"Loaded {len(rows)} raw transactions from database.")
 
     raw_txs = []
     accounts_map = {}
 
-    import re
     for r in rows:
-        payload = json.loads(r["payload_json"])
+        payload = json.loads(r["payload_json"]) if r["payload_json"] else {}
         raw = RawBankTransaction(
             raw_id=r["raw_id"],
             user_id=r["user_id"],
@@ -167,30 +215,28 @@ def run_reprocess(user_id: str = "default_user"):
         # Extract accounts
         raw_data = payload.get("raw_data", {})
         acc_val = raw_data.get("account")
-        prod_id = raw_data.get("accountProductId") or acc_val
+        prod_id = str(raw_data.get("accountProductId") or acc_val or "")
         if acc_val and prod_id not in accounts_map:
             digits = re.findall(r"\d{4}", str(acc_val))
             last4 = digits[-1] if digits else str(acc_val)
             accounts_map[prod_id] = BankAccountInfo(
-                id=str(prod_id),
+                id=prod_id,
                 user_id=user_id,
                 name=f"Счет ВТБ {acc_val}".strip(),
                 account_type=AccountType.DEBIT,
                 balance=0.0,
                 currency=r["raw_currency"] or "RUB",
                 account_last4=last4,
+                account_product_id=prod_id,
                 raw_details={"bank_name": "ВТБ", "account": acc_val, "accountProductId": prod_id}
             )
 
-    # Save accounts
     if accounts_map:
         saved_accs = repo.save_accounts(list(accounts_map.values()), user_id=user_id)
         console.print(f"[green]Discovered and saved {saved_accs} distinct accounts to SQLite.[/green]")
 
-    # Normalize transactions
     normalized = []
     failed = 0
-
     for raw in raw_txs:
         norm = normalizer.normalize_transaction(raw)
         if norm:
@@ -198,90 +244,20 @@ def run_reprocess(user_id: str = "default_user"):
         else:
             failed += 1
 
-    # Deduplicate normalized transactions by stable bank_id
     dedup_normalized = list({tx.bank_id: tx for tx in normalized}.values())
 
-    type_counts = {}
-    for tx in dedup_normalized:
-        type_counts[tx.type.value] = type_counts.get(tx.type.value, 0) + 1
-
-    # Clear old normalized table for this user to eliminate previously stored ephemeral ID duplicates
+    # Replace normalized records for user cleanly
     with repo._get_connection() as conn:
         conn.execute("DELETE FROM normalized_transactions WHERE user_id = ?", (user_id,))
         conn.commit()
 
-    saved_count = repo.save_normalized_transactions(dedup_normalized, user_id=user_id)
-    console.print(f"[bold green]Normalized & saved: {saved_count} unique verified transactions (from {len(raw_txs)} raw items, duplicates removed: {len(raw_txs) - len(dedup_normalized)}, Failed: {failed})[/bold green]")
-    console.print(f"Distribution: [magenta]{type_counts}[/magenta]")
-
-    # Export to JSON
-    export_file = export_dir / "vtb_transactions.json"
-    repo.export_to_json(export_file, user_id=user_id)
-    console.print(f"[bold green]Exported Mani-Mani JSON to: {export_file}[/bold green]")
-
-
-def run_status(user_id: str = "default_user"):
-    _, db_path, _ = get_paths()
-    if not db_path.exists():
-        console.print(f"[yellow]Database file does not exist yet at {db_path}[/yellow]")
-        return
-
-    repo = SqliteTransactionRepository(db_path)
-    txs = repo.get_normalized_transactions(user_id=user_id, limit=25)
-
-    conn = sqlite3.connect(str(db_path))
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM bank_accounts WHERE user_id = ?", (user_id,))
-    acc_count = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM raw_transactions WHERE user_id = ?", (user_id,))
-    raw_count = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM normalized_transactions WHERE user_id = ?", (user_id,))
-    norm_count = c.fetchone()[0]
-    conn.close()
-
-    console.print(f"[bold cyan]Database: {db_path}[/bold cyan] (User: [yellow]{user_id}[/yellow])")
-    console.print(f"Summary: Accounts: [bold green]{acc_count}[/bold green] | Raw: [bold green]{raw_count}[/bold green] | Normalized: [bold green]{norm_count}[/bold green]")
-
-    if not txs:
-        console.print("[yellow]No normalized transactions for this user yet.[/yellow]")
-        return
-
-    table = Table(title=f"Stored Normalized Transactions (Showing latest {len(txs)} of {norm_count})")
-    table.add_column("Date (UTC)", style="cyan")
-    table.add_column("Type", style="magenta")
-    table.add_column("Amount", style="green", justify="right")
-    table.add_column("Cur", style="white")
-    table.add_column("Description", style="white")
-    table.add_column("Account", style="yellow")
-    table.add_column("Status", style="bold")
-
-    from datetime import datetime, timezone
-    for t in txs:
-        dt_str = datetime.fromtimestamp(t.timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
-        table.add_row(
-            dt_str,
-            t.type.value,
-            f"{t.amount:.2f}",
-            t.currency,
-            t.description[:40],
-            t.account_last4 or "-",
-            t.status
-        )
-
-    console.print(table)
-
-
-def run_export(output: str, user_id: str = "default_user"):
-    _, db_path, export_dir = get_paths()
-    out_path = Path(output) if output else export_dir / "transactions_export.json"
-    repo = SqliteTransactionRepository(db_path)
-    repo.export_to_json(out_path, user_id=user_id)
-    console.print(f"[green]Successfully exported transactions for user '{user_id}' to [bold]{out_path}[/bold][/green]")
+    saved = repo.save_normalized_transactions(dedup_normalized, user_id=user_id)
+    console.print(f"[bold green]Reprocessed {len(raw_txs)} raw rows -> Saved {saved} unique normalized transactions.[/bold green]")
 
 
 def run_server(host: str, port: int, reload: bool):
     import uvicorn
-    console.print(f"[bold cyan]Starting {settings.PROJECT_NAME} on {host}:{port}...[/bold cyan]")
+    console.print(f"[bold green]Starting Mani-Mani Sync Lab Server on {host}:{port}...[/bold green]")
     uvicorn.run("sync_lab.server.app:app", host=host, port=port, reload=reload)
 
 
@@ -290,10 +266,13 @@ def run_user_create(username: str):
     repo = SqliteTransactionRepository(db_path)
     existing = repo.get_user_by_username(username)
     if existing:
-        console.print(f"[yellow]User '{username}' already exists (ID: {existing.id}).[/yellow]")
+        console.print(f"[yellow]User '{username}' already exists with ID: {existing.id}[/yellow]")
         return
-    user = repo.create_user(username)
-    console.print(f"[bold green]User created successfully![/bold green] ID: [cyan]{user.id}[/cyan], Username: [cyan]{user.username}[/cyan]")
+    user = repo.create_user(username=username)
+    console.print("[bold green]User created successfully:[/bold green]")
+    console.print(f"  ID:       [cyan]{user.id}[/cyan]")
+    console.print(f"  Username: [green]{user.username}[/green]")
+    console.print(f"  Active:   {user.is_active}")
 
 
 def run_user_list():
@@ -309,29 +288,31 @@ def run_user_list():
     console.print(table)
 
 
-def run_api_key_create(username: str, name: str):
+def run_api_key_create(user_identifier: str, name: str):
     _, db_path, _ = get_paths()
     repo = SqliteTransactionRepository(db_path)
-    user = repo.get_user_by_username(username)
+    user = repo.get_user(user_identifier) or repo.get_user_by_username(user_identifier)
     if not user:
-        console.print(f"[red]User '{username}' not found. Create user first with 'user create'.[/red]")
+        console.print(f"[red]User '{user_identifier}' not found. Create user first with 'user create'.[/red]")
         return
     raw_key, api_key = repo.create_api_key(user_id=user.id, name=name)
     console.print("[bold green]API Key generated successfully![/bold green]")
-    console.print("[bold yellow]IMPORTANT: Save this key now! It will not be shown again.[/bold yellow]")
-    console.print(f"Key: [bold white on blue] {raw_key} [/bold white on blue]")
-    console.print(f"Prefix: {api_key.key_prefix} | User: {user.username} | Name: {api_key.name}")
+    console.print("[bold yellow]IMPORTANT: Store this key securely. It cannot be recovered later![/bold yellow]")
+    console.print(f"  Raw Secret Key:  [bold white on blue] {raw_key} [/bold white on blue]")
+    console.print(f"  Prefix:          [cyan]{api_key.key_prefix}[/cyan]")
+    console.print(f"  User ID:         [cyan]{user.id}[/cyan] ({user.username})")
+    console.print(f"  Name:            [white]{api_key.name}[/white]")
 
 
-def run_api_key_list(username: str):
+def run_api_key_list(user_identifier: str):
     _, db_path, _ = get_paths()
     repo = SqliteTransactionRepository(db_path)
-    user = repo.get_user_by_username(username)
+    user = repo.get_user(user_identifier) or repo.get_user_by_username(user_identifier)
     if not user:
-        console.print(f"[red]User '{username}' not found.[/red]")
+        console.print(f"[red]User '{user_identifier}' not found.[/red]")
         return
     keys = repo.list_api_keys(user.id)
-    table = Table(title=f"API Keys for {username} ({len(keys)})")
+    table = Table(title=f"API Keys for {user.username} ({len(keys)})")
     table.add_column("Prefix", style="cyan")
     table.add_column("Name", style="white")
     table.add_column("Revoked", style="red")
@@ -361,30 +342,40 @@ def main():
     srv_parser.add_argument("--port", type=int, default=settings.PORT, help="Port to bind")
     srv_parser.add_argument("--reload", action="store_true", help="Enable hot reload")
 
-    # User management
+    # User management (flexible: supports positional or --username flag)
     user_parser = subparsers.add_parser("user", help="User management commands")
     user_sub = user_parser.add_subparsers(dest="subcommand", required=True)
     uc = user_sub.add_parser("create", help="Create a user")
-    uc.add_argument("username", help="Unique username")
+    uc.add_argument("username_pos", nargs="?", help="Unique username")
+    uc.add_argument("--username", "-u", dest="username_flag", help="Unique username")
     user_sub.add_parser("list", help="List all users")
 
-    # API Key management
+    # API Key management (flexible: supports positional or flags)
     key_parser = subparsers.add_parser("api-key", help="API key management commands")
     key_sub = key_parser.add_subparsers(dest="subcommand", required=True)
     kc = key_sub.add_parser("create", help="Generate an API key")
-    kc.add_argument("username", help="Target username")
-    kc.add_argument("--name", default="Mani-Mani Client", help="Friendly key name")
+    kc.add_argument("user_pos", nargs="?", help="Target username or user ID")
+    kc.add_argument("--user-id", "--username", "-u", dest="user_flag", help="Target user ID or username")
+    kc.add_argument("--name", "-n", default="Mani-Mani Client", help="Friendly key name")
+
     kl = key_sub.add_parser("list", help="List API keys for a user")
-    kl.add_argument("username", help="Target username")
+    kl.add_argument("user_pos", nargs="?", help="Target username or user ID")
+    kl.add_argument("--user-id", "--username", "-u", dest="user_flag", help="Target user ID or username")
+
     kr = key_sub.add_parser("revoke", help="Revoke an API key")
-    kr.add_argument("identifier", help="Key hash or prefix")
+    kr.add_argument("id_pos", nargs="?", help="Key hash or prefix")
+    kr.add_argument("--prefix", "--hash", "-p", dest="id_flag", help="Key hash or prefix")
 
     # Testing & Sync commands
     test_parser = subparsers.add_parser("test-auth", help="Launch browser and open VTB login page")
     test_parser.add_argument("--keep-open", action="store_true", help="Keep browser open after probe")
+    test_parser.add_argument("--headless", action="store_true", default=settings.HEADLESS, help="Run browser in headless mode")
+    test_parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser with visible UI")
 
     sync_parser = subparsers.add_parser("sync", help="Run full VTB sync pipeline")
     sync_parser.add_argument("--user-id", default="default_user", help="Target user ID")
+    sync_parser.add_argument("--headless", action="store_true", default=settings.HEADLESS, help="Run browser in headless mode")
+    sync_parser.add_argument("--no-headless", action="store_false", dest="headless", help="Run browser with visible UI")
 
     rep_parser = subparsers.add_parser("reprocess", help="Reprocess raw transactions")
     rep_parser.add_argument("--user-id", default="default_user", help="Target user ID")
@@ -402,16 +393,32 @@ def main():
         run_server(args.host, args.port, args.reload)
     elif args.command == "user":
         if args.subcommand == "create":
-            run_user_create(args.username)
+            uname = args.username_flag or args.username_pos
+            if not uname:
+                console.print("[red]Error: username is required. Provide as argument or --username <name>[/red]")
+                sys.exit(1)
+            run_user_create(uname)
         elif args.subcommand == "list":
             run_user_list()
     elif args.command == "api-key":
         if args.subcommand == "create":
-            run_api_key_create(args.username, args.name)
+            u_ident = args.user_flag or args.user_pos
+            if not u_ident:
+                console.print("[red]Error: user ID or username is required. Provide as argument or --user-id <id>[/red]")
+                sys.exit(1)
+            run_api_key_create(u_ident, args.name)
         elif args.subcommand == "list":
-            run_api_key_list(args.username)
+            u_ident = args.user_flag or args.user_pos
+            if not u_ident:
+                console.print("[red]Error: user ID or username is required. Provide as argument or --user-id <id>[/red]")
+                sys.exit(1)
+            run_api_key_list(u_ident)
         elif args.subcommand == "revoke":
-            run_api_key_revoke(args.identifier)
+            ident = args.id_flag or args.id_pos
+            if not ident:
+                console.print("[red]Error: key prefix or hash is required. Provide as argument or --prefix <prefix>[/red]")
+                sys.exit(1)
+            run_api_key_revoke(ident)
     elif args.command == "test-auth":
         asyncio.run(run_test_auth(args))
     elif args.command == "sync":

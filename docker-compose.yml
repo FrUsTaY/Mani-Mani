@@ -12,17 +12,18 @@ services:
       - SYNC_LAB_LOG_LEVEL=${SYNC_LAB_LOG_LEVEL:-INFO}
       - SYNC_LAB_PORT=8000
       - SYNC_LAB_ALLOWED_ORIGINS=${SYNC_LAB_ALLOWED_ORIGINS:-*}
-      - SYNC_LAB_HEADLESS=true
+      - SYNC_LAB_HEADLESS=${SYNC_LAB_HEADLESS:-true}
     volumes:
       - "${SYNC_LAB_HOST_DATA_DIR:-./data}:/data"
+    shm_size: 256m
     deploy:
       resources:
         limits:
           cpus: '1.5'
-          memory: 512M
+          memory: 1G
         reservations:
           cpus: '0.2'
-          memory: 128M
+          memory: 256M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 30s

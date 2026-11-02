@@ -1,36 +1,27 @@
 """
-Data models for Mani-Mani Sync Lab.
+Domain Models for Mani-Mani Sync Lab.
 
-These models are strictly aligned with the Android Mani-Mani entity contracts:
+Strictly aligned with Mani-Mani Android entities:
 - AccountEntity
 - TransactionEntity
 - PendingNotificationEntity
-
-Reusability Guide:
-1. Reusable / 1:1 mapping with Kotlin data classes:
-   - AccountType, TransactionType
-   - NormalizedTransaction
-   - BankAccountInfo
-   - User, ApiKey
-2. Android adaptation needed:
-   - RawBankTransaction parsing logic
-3. Research-only:
-   - SyncSession, NetworkCaptureLog
+- CurrencyRates
 """
 
 from enum import Enum
-from typing import Optional, Dict, Any, List, Generic, TypeVar
+from typing import Dict, Any, Optional, List, TypeVar, Generic
 from pydantic import BaseModel, Field
 
 
 class TransactionType(str, Enum):
+    """Matches com.easybudget.core.model.TransactionType in Android."""
     EXPENSE = "EXPENSE"
     INCOME = "INCOME"
     TRANSFER = "TRANSFER"
-    UNKNOWN = "UNKNOWN"
 
 
 class AccountType(str, Enum):
+    """Matches com.easybudget.core.model.AccountType in Android."""
     DEBIT = "DEBIT"
     CREDIT = "CREDIT"
     DEPOSIT = "DEPOSIT"
@@ -40,7 +31,7 @@ class AccountType(str, Enum):
 
 
 class User(BaseModel):
-    """Represents a registered user in Sync Lab multi-tenant server."""
+    """Multi-tenant user representation."""
     id: str
     username: str
     created_at: int
@@ -71,6 +62,7 @@ class BankAccountInfo(BaseModel):
     currency: str = "RUB"
     card_last4: Optional[str] = None
     account_last4: Optional[str] = None
+    account_product_id: Optional[str] = None  # Stable bank product ID (accountProductId) for Mani-Mani matching
     is_blocked: bool = False
     raw_details: Dict[str, Any] = Field(default_factory=dict)
 
@@ -112,12 +104,15 @@ class NormalizedTransaction(BaseModel):
     mcc: Optional[int] = None  # MCC code if provided by bank
     card_last4: Optional[str] = None
     account_last4: Optional[str] = None
+    account_product_id: Optional[str] = None  # Stable bank product ID (accountProductId)
     balance_after: Optional[float] = None  # Account balance after operation
     fee: float = 0.0  # Operation fee if any
     status: str = "CONFIRMED"  # CONFIRMED, HOLD, FAILED
     category_suggestion: Optional[str] = None
     raw_source_id: Optional[str] = None
     is_internal_transfer: bool = False  # Distinguishes Me2Me (own accounts) from peer-to-peer transfers
+    created_at: Optional[int] = None  # Server ingestion timestamp in ms
+    updated_at: Optional[int] = None  # Server ingestion or modification timestamp in ms
 
     def to_mani_mani_dict(self) -> Dict[str, Any]:
         """Convert to format suitable for Mani-Mani JSON backup / import."""
@@ -132,11 +127,14 @@ class NormalizedTransaction(BaseModel):
             "merchant": self.merchant,
             "cardLast4": self.card_last4,
             "accountLast4": self.account_last4,
+            "accountProductId": self.account_product_id,
             "balanceAfter": self.balance_after,
             "fee": self.fee,
             "status": self.status,
             "externalId": self.bank_id,
             "isInternalTransfer": self.is_internal_transfer,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
         }
 
 

@@ -17,6 +17,7 @@ class BankAccountResponse(BaseModel):
     currency: str = Field(default="RUB", description="ISO currency code")
     card_last4: Optional[str] = Field(None, description="Last 4 digits of linked card if available")
     account_last4: Optional[str] = Field(None, description="Last 4 digits of bank account")
+    account_product_id: Optional[str] = Field(None, description="Stable bank product ID (accountProductId) for matching with Mani-Mani accounts")
     is_blocked: bool = Field(default=False, description="Whether account is blocked")
 
 
@@ -37,6 +38,7 @@ class TransactionResponse(BaseModel):
     mcc: Optional[int] = Field(None, description="MCC category code")
     card_last4: Optional[str] = Field(None, description="Last 4 digits of card used")
     account_last4: Optional[str] = Field(None, description="Last 4 digits of account")
+    account_product_id: Optional[str] = Field(None, description="Stable bank product ID (accountProductId)")
     balance_after: Optional[float] = Field(None, description="Account balance after operation")
     fee: float = Field(default=0.0, description="Operation commission/fee")
     status: str = Field(default="CONFIRMED", description="Operation status: CONFIRMED, HOLD, FAILED")
@@ -45,6 +47,8 @@ class TransactionResponse(BaseModel):
         default=False,
         description="True if transaction is a Me2Me transfer between user's own accounts"
     )
+    created_at: Optional[int] = Field(None, description="Server ingestion timestamp in ms")
+    updated_at: Optional[int] = Field(None, description="Server last modified / ingestion timestamp in ms")
 
 
 class PaginatedTransactionsResponse(BaseModel):
@@ -61,8 +65,8 @@ class HealthResponse(BaseModel):
     database: str = "connected"
     timestamp: int
     uptime_seconds: float
-    total_accounts: int
-    total_transactions: int
+    total_accounts: Optional[int] = None
+    total_transactions: Optional[int] = None
 
 
 class UserResponse(BaseModel):

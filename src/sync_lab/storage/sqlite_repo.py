@@ -1,17 +1,16 @@
 """
-SQLite repository implementation for Mani-Mani Sync Lab.
+SQLite Persistence Layer for Mani-Mani Sync Lab.
 
-Stores captured bank accounts, raw payloads (sanitized) and normalized transactions.
-Supports multi-tenancy with isolated users and hashed API keys.
+Stores raw captured responses and normalized transactions with deduplication.
+Strictly compatible with Mani-Mani TransactionEntity and AccountEntity structure.
 
 Reusability Guide:
-1. Reusable / 1:1 mapping:
-   - Database schema directly corresponds to Room tables in Android:
-     `accounts`, `transactions`, `raw_bank_transactions`.
+1. Reusable / Android mapping:
+   - The SQLite table schema maps directly to Android Room entities.
 2. Android adaptation needed:
    - On Android this will be Room DAO (FinanceDaos.kt).
 3. Server-side features:
-   - User isolation, API key SHA-256 authentication, pagination, and since_timestamp sync.
+   - User isolation, API key SHA-256 authentication, pagination, and incremental sync with delayed operations support.
 """
 
 import hashlib
@@ -21,7 +20,6 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
-
 from sync_lab.core.interfaces import BaseTransactionRepository
 from sync_lab.core.models import (
     BankAccountInfo,
@@ -36,7 +34,8 @@ from sync_lab.core.models import (
 
 class SqliteTransactionRepository(BaseTransactionRepository):
     """
-    Local SQLite repository for Sync Lab research and multi-user server API.
+    SQLite-based multi-tenant transaction repository.
+    Enforces user isolation, API key validation, and idempotent writes.
     """
 
     def __init__(self, db_path: Path):
@@ -45,8 +44,10 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # Enable WAL mode for high concurrency and hot online backups
+        conn.execute("PRAGMA journal_mode = WAL;")
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON;")
         return conn
@@ -90,6 +91,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     currency TEXT NOT NULL DEFAULT 'RUB',
                     card_last4 TEXT,
                     account_last4 TEXT,
+                    account_product_id TEXT,
                     is_blocked INTEGER NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY (user_id, id)
@@ -131,6 +133,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     mcc INTEGER,
                     card_last4 TEXT,
                     account_last4 TEXT,
+                    account_product_id TEXT,
                     balance_after REAL,
                     fee REAL NOT NULL DEFAULT 0.0,
                     status TEXT NOT NULL DEFAULT 'CONFIRMED',
@@ -138,11 +141,12 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     raw_source_id TEXT,
                     is_internal_transfer INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (user_id, bank_id)
                 )
             """)
 
-            # Run safe migrations for existing databases that were created without user_id
+            # Run safe migrations for existing databases that were created without new columns
             self._migrate_schema_if_needed(cursor)
 
             # Ensure default user exists so legacy data remains accessible
@@ -155,16 +159,18 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             # Create performance indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_tx_user_ts ON normalized_transactions(user_id, timestamp DESC)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_tx_user_acc ON normalized_transactions(user_id, account_last4)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_tx_user_prod ON normalized_transactions(user_id, account_product_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_tx_user_upd ON normalized_transactions(user_id, updated_at DESC)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)")
 
             conn.commit()
 
     def _migrate_schema_if_needed(self, cursor: sqlite3.Cursor) -> None:
-        """Safely alters existing tables if columns are missing."""
+        """Safely alters existing tables if columns are missing without data loss."""
         tables_to_check = {
-            "bank_accounts": ["user_id"],
+            "bank_accounts": ["user_id", "account_product_id", "updated_at"],
             "raw_transactions": ["user_id"],
-            "normalized_transactions": ["user_id", "is_internal_transfer", "created_at"],
+            "normalized_transactions": ["user_id", "is_internal_transfer", "created_at", "updated_at", "account_product_id"],
         }
         for table, required_cols in tables_to_check.items():
             cursor.execute(f"PRAGMA table_info({table})")
@@ -177,6 +183,11 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN is_internal_transfer INTEGER NOT NULL DEFAULT 0")
                     elif col == "created_at":
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                    elif col == "updated_at":
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+                        cursor.execute(f"UPDATE {table} SET updated_at = created_at WHERE updated_at = 0")
+                    elif col == "account_product_id":
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN account_product_id TEXT")
 
     # ---------------------------------------------------------
     # User and API Key Management
@@ -238,7 +249,8 @@ class SqliteTransactionRepository(BaseTransactionRepository):
 
     @staticmethod
     def _hash_key(raw_key: str) -> str:
-        return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        """Computes SHA-256 hash of API key for safe storage."""
+        return hashlib.sha256(raw_key.strip().encode("utf-8")).hexdigest()
 
     def create_api_key(self, user_id: str, name: str) -> Tuple[str, ApiKey]:
         """
@@ -258,27 +270,29 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             """, (key_hash, key_prefix, user_id, name, now))
             conn.commit()
 
-        api_key = ApiKey(
+        api_key_model = ApiKey(
             key_hash=key_hash,
             key_prefix=key_prefix,
             user_id=user_id,
             name=name,
             created_at=now,
-            is_revoked=False
+            last_used_at=None,
+            is_revoked=False,
         )
-        return raw_key, api_key
+        return raw_key, api_key_model
 
-    def verify_api_key(self, raw_key: str) -> Optional[User]:
-        """Validates key, updates last_used_at, and returns the User."""
-        if not raw_key:
-            return None
+    def validate_api_key(self, raw_key: str) -> Optional[User]:
+        """
+        Validates API key against SHA-256 hashes and returns associated User if valid and active.
+        Updates last_used_at timestamp.
+        """
         key_hash = self._hash_key(raw_key)
         now = int(time.time() * 1000)
 
         with self._get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT k.user_id, u.username, u.is_active, k.is_revoked
+                SELECT u.id, u.username, u.created_at, u.is_active, k.is_revoked
                 FROM api_keys k
                 JOIN users u ON k.user_id = u.id
                 WHERE k.key_hash = ?
@@ -290,11 +304,20 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             if row["is_revoked"] or not row["is_active"]:
                 return None
 
-            # Update last used
-            conn.execute("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?", (now, key_hash))
+            # Update last used timestamp
+            conn.execute("""
+                UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?
+            """, (now, key_hash))
             conn.commit()
 
-            return User(id=row["user_id"], username=row["username"], created_at=0, is_active=True)
+            return User(
+                id=row["id"],
+                username=row["username"],
+                created_at=row["created_at"],
+                is_active=bool(row["is_active"]),
+            )
+
+    verify_api_key = validate_api_key
 
     def revoke_api_key(self, key_hash_or_prefix: str, user_id: Optional[str] = None) -> bool:
         """Revokes an active API key."""
@@ -304,15 +327,19 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             if user_id:
                 query += " AND user_id = ?"
                 params.append(user_id)
-            cursor = conn.execute(query, params)
+            cur = conn.cursor()
+            cur.execute(query, params)
             conn.commit()
-            return cursor.rowcount > 0
+            return cur.rowcount > 0
 
     def list_api_keys(self, user_id: str) -> List[ApiKey]:
+        """Lists metadata of API keys for a user (hashes and prefixes only)."""
         results = []
         with self._get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+            cur.execute("""
+                SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC
+            """, (user_id,))
             for r in cur.fetchall():
                 results.append(ApiKey(
                     key_hash=r["key_hash"],
@@ -336,11 +363,23 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             cursor = conn.cursor()
             for acc in accounts:
                 target_user = acc.user_id if acc.user_id != "default_user" else user_id
+                prod_id = acc.account_product_id or acc.raw_details.get("accountProductId") or acc.id
                 cursor.execute("""
-                    INSERT OR REPLACE INTO bank_accounts (
+                    INSERT INTO bank_accounts (
                         id, user_id, bank_name, name, account_type, balance, currency,
-                        card_last4, account_last4, is_blocked, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        card_last4, account_last4, account_product_id, is_blocked, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, id) DO UPDATE SET
+                        bank_name = excluded.bank_name,
+                        name = excluded.name,
+                        account_type = excluded.account_type,
+                        balance = excluded.balance,
+                        currency = excluded.currency,
+                        card_last4 = excluded.card_last4,
+                        account_last4 = excluded.account_last4,
+                        account_product_id = excluded.account_product_id,
+                        is_blocked = excluded.is_blocked,
+                        updated_at = excluded.updated_at
                 """, (
                     acc.id,
                     target_user,
@@ -351,6 +390,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     acc.currency,
                     acc.card_last4,
                     acc.account_last4,
+                    prod_id,
                     1 if acc.is_blocked else 0,
                     now
                 ))
@@ -368,6 +408,8 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                 ORDER BY name ASC
             """, (user_id,))
             for r in cur.fetchall():
+                keys = r.keys()
+                prod_id = r["account_product_id"] if "account_product_id" in keys else None
                 results.append(BankAccountInfo(
                     id=r["id"],
                     user_id=r["user_id"],
@@ -377,8 +419,12 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     currency=r["currency"],
                     card_last4=r["card_last4"],
                     account_last4=r["account_last4"],
+                    account_product_id=prod_id,
                     is_blocked=bool(r["is_blocked"]),
-                    raw_details={"bank_name": r["bank_name"]}
+                    raw_details={
+                        "bank_name": r["bank_name"],
+                        "accountProductId": prod_id
+                    }
                 ))
         return results
 
@@ -423,13 +469,34 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             cursor = conn.cursor()
             for tx in txs:
                 target_user = tx.user_id if tx.user_id != "default_user" else user_id
+                tx_created = tx.created_at or now
+                tx_updated = tx.updated_at or now
                 cursor.execute("""
-                    INSERT OR REPLACE INTO normalized_transactions (
+                    INSERT INTO normalized_transactions (
                         bank_id, user_id, bank_name, type, amount, currency, timestamp,
-                        description, merchant, mcc, card_last4, account_last4,
+                        description, merchant, mcc, card_last4, account_last4, account_product_id,
                         balance_after, fee, status, category_suggestion, raw_source_id,
-                        is_internal_transfer, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        is_internal_transfer, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, bank_id) DO UPDATE SET
+                        bank_name = excluded.bank_name,
+                        type = excluded.type,
+                        amount = excluded.amount,
+                        currency = excluded.currency,
+                        timestamp = excluded.timestamp,
+                        description = excluded.description,
+                        merchant = excluded.merchant,
+                        mcc = excluded.mcc,
+                        card_last4 = excluded.card_last4,
+                        account_last4 = excluded.account_last4,
+                        account_product_id = excluded.account_product_id,
+                        balance_after = excluded.balance_after,
+                        fee = excluded.fee,
+                        status = excluded.status,
+                        category_suggestion = excluded.category_suggestion,
+                        raw_source_id = excluded.raw_source_id,
+                        is_internal_transfer = excluded.is_internal_transfer,
+                        updated_at = excluded.updated_at
                 """, (
                     tx.bank_id,
                     target_user,
@@ -443,13 +510,15 @@ class SqliteTransactionRepository(BaseTransactionRepository):
                     tx.mcc,
                     tx.card_last4,
                     tx.account_last4,
+                    tx.account_product_id,
                     tx.balance_after,
                     tx.fee,
                     tx.status,
                     tx.category_suggestion,
                     tx.raw_source_id,
                     1 if tx.is_internal_transfer else 0,
-                    now
+                    tx_created,
+                    tx_updated
                 ))
                 saved += 1
             conn.commit()
@@ -460,6 +529,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         bank_name: Optional[str] = None,
         user_id: str = "default_user",
         account_last4: Optional[str] = None,
+        account_product_id: Optional[str] = None,
         tx_type: Optional[TransactionType] = None,
         from_timestamp: Optional[int] = None,
         to_timestamp: Optional[int] = None,
@@ -478,6 +548,9 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         if account_last4:
             query += " AND account_last4 = ?"
             params.append(account_last4)
+        if account_product_id:
+            query += " AND account_product_id = ?"
+            params.append(account_product_id)
         if tx_type:
             query += " AND type = ?"
             params.append(tx_type.value)
@@ -488,9 +561,10 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             query += " AND timestamp <= ?"
             params.append(to_timestamp)
         if since_timestamp is not None:
-            # Incremental sync cursor: operations occurred after since_timestamp
-            query += " AND timestamp > ?"
-            params.append(since_timestamp)
+            # Incremental sync: matches operations that occurred after since_timestamp,
+            # OR were inserted/updated after since_timestamp (handles delayed backdated settlements)
+            query += " AND (timestamp > ? OR updated_at > ?)"
+            params.extend([since_timestamp, since_timestamp])
         if is_internal_transfer is not None:
             query += " AND is_internal_transfer = ?"
             params.append(1 if is_internal_transfer else 0)
@@ -511,6 +585,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         user_id: str = "default_user",
         bank_name: Optional[str] = None,
         account_last4: Optional[str] = None,
+        account_product_id: Optional[str] = None,
         tx_type: Optional[TransactionType] = None,
         from_timestamp: Optional[int] = None,
         to_timestamp: Optional[int] = None,
@@ -526,6 +601,9 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         if account_last4:
             query += " AND account_last4 = ?"
             params.append(account_last4)
+        if account_product_id:
+            query += " AND account_product_id = ?"
+            params.append(account_product_id)
         if tx_type:
             query += " AND type = ?"
             params.append(tx_type.value)
@@ -536,8 +614,8 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             query += " AND timestamp <= ?"
             params.append(to_timestamp)
         if since_timestamp is not None:
-            query += " AND timestamp > ?"
-            params.append(since_timestamp)
+            query += " AND (timestamp > ? OR updated_at > ?)"
+            params.extend([since_timestamp, since_timestamp])
         if is_internal_transfer is not None:
             query += " AND is_internal_transfer = ?"
             params.append(1 if is_internal_transfer else 0)
@@ -562,6 +640,7 @@ class SqliteTransactionRepository(BaseTransactionRepository):
         return None
 
     def _row_to_normalized_transaction(self, r: sqlite3.Row) -> NormalizedTransaction:
+        keys = r.keys()
         return NormalizedTransaction(
             bank_id=r["bank_id"],
             user_id=r["user_id"],
@@ -575,12 +654,15 @@ class SqliteTransactionRepository(BaseTransactionRepository):
             mcc=r["mcc"],
             card_last4=r["card_last4"],
             account_last4=r["account_last4"],
+            account_product_id=r["account_product_id"] if "account_product_id" in keys else None,
             balance_after=r["balance_after"],
             fee=r["fee"],
             status=r["status"],
             category_suggestion=r["category_suggestion"],
             raw_source_id=r["raw_source_id"],
-            is_internal_transfer=bool(r["is_internal_transfer"]) if "is_internal_transfer" in r.keys() else False,
+            is_internal_transfer=bool(r["is_internal_transfer"]) if "is_internal_transfer" in keys else False,
+            created_at=r["created_at"] if "created_at" in keys else None,
+            updated_at=r["updated_at"] if "updated_at" in keys else None,
         )
 
     def export_to_json(self, output_path: Path, user_id: str = "default_user") -> None:

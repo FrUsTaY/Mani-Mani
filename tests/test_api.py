@@ -1,6 +1,7 @@
 """
 Unit and integration tests for FastAPI REST API endpoints.
-Tests authentication, authorization, multi-tenant isolation, pagination, and filtering.
+Tests authentication, authorization, multi-tenant isolation, pagination,
+filtering, stable accountProductId propagation, and incremental sync for delayed transactions.
 """
 
 import pytest
@@ -41,6 +42,8 @@ def test_setup(repo):
         balance=15000.0,
         currency="RUB",
         card_last4="1111",
+        account_last4="1111",
+        account_product_id="prod_alice_101",
         user_id=u1.id
     )
     repo.save_accounts([acc_a1], user_id=u1.id)
@@ -53,11 +56,13 @@ def test_setup(repo):
         balance=50000.0,
         currency="RUB",
         card_last4="2222",
+        account_last4="2222",
+        account_product_id="prod_bob_202",
         user_id=u2.id
     )
     repo.save_accounts([acc_b1], user_id=u2.id)
 
-    # Insert Alice's transactions
+    # Insert Alice's transactions with explicit timestamps
     tx_a1 = NormalizedTransaction(
         bank_id="tx_a_101",
         bank_name="ВТБ",
@@ -68,8 +73,12 @@ def test_setup(repo):
         description="Grocery Store",
         merchant="Supermarket",
         card_last4="1111",
+        account_last4="1111",
+        account_product_id="prod_alice_101",
         user_id=u1.id,
-        is_internal_transfer=False
+        is_internal_transfer=False,
+        created_at=1772500000000,
+        updated_at=1772500000000,
     )
     tx_a2 = NormalizedTransaction(
         bank_id="tx_a_102",
@@ -81,8 +90,12 @@ def test_setup(repo):
         description="Между своими счетами",
         merchant=None,
         card_last4="1111",
+        account_last4="1111",
+        account_product_id="prod_alice_101",
         user_id=u1.id,
-        is_internal_transfer=True
+        is_internal_transfer=True,
+        created_at=1772600000000,
+        updated_at=1772600000000,
     )
     tx_a3 = NormalizedTransaction(
         bank_id="tx_a_103",
@@ -94,8 +107,12 @@ def test_setup(repo):
         description="Salary",
         merchant="Company",
         card_last4="1111",
+        account_last4="1111",
+        account_product_id="prod_alice_101",
         user_id=u1.id,
-        is_internal_transfer=False
+        is_internal_transfer=False,
+        created_at=1772700000000,
+        updated_at=1772700000000,
     )
     repo.save_normalized_transactions([tx_a1, tx_a2, tx_a3], user_id=u1.id)
 
@@ -110,8 +127,12 @@ def test_setup(repo):
         description="Bob Dinner",
         merchant="Restaurant",
         card_last4="2222",
+        account_last4="2222",
+        account_product_id="prod_bob_202",
         user_id=u2.id,
-        is_internal_transfer=False
+        is_internal_transfer=False,
+        created_at=1772550000000,
+        updated_at=1772550000000,
     )
     repo.save_normalized_transactions([tx_b1], user_id=u2.id)
 
@@ -180,6 +201,7 @@ def test_multi_tenant_accounts_isolation(client, test_setup):
     assert data_alice["total"] == 1
     assert len(data_alice["items"]) == 1
     assert data_alice["items"][0]["id"] == "acc_alice_1"
+    assert data_alice["items"][0]["account_product_id"] == "prod_alice_101"
 
     res_bob = client.get("/api/v1/accounts", headers={"X-API-Key": bob_key})
     assert res_bob.status_code == 200
@@ -187,6 +209,7 @@ def test_multi_tenant_accounts_isolation(client, test_setup):
     assert data_bob["total"] == 1
     assert len(data_bob["items"]) == 1
     assert data_bob["items"][0]["id"] == "acc_bob_1"
+    assert data_bob["items"][0]["account_product_id"] == "prod_bob_202"
 
 
 def test_multi_tenant_transactions_isolation(client, test_setup):
@@ -247,6 +270,11 @@ def test_transactions_filters(client, test_setup):
     assert data["items"][0]["bank_id"] == "tx_a_102"
     assert data["items"][0]["is_internal_transfer"] is True
 
+    # Filter by account_product_id
+    res_prod = client.get("/api/v1/transactions?account_product_id=prod_alice_101", headers={"X-API-Key": alice_key})
+    assert res_prod.status_code == 200
+    assert res_prod.json()["total"] == 3
+
     # Filter by since_timestamp (incremental sync)
     res_since = client.get("/api/v1/transactions?since_timestamp=1772600000000", headers={"X-API-Key": alice_key})
     assert res_since.status_code == 200
@@ -254,6 +282,44 @@ def test_transactions_filters(client, test_setup):
     # Timestamp > 1772600000000 -> only tx_a_103 (1772700000000)
     assert data["total"] == 1
     assert data["items"][0]["bank_id"] == "tx_a_103"
+
+
+def test_delayed_transactions_incremental_sync(client, test_setup):
+    """
+    Ensures bank operations that arrived with delay (e.g. backdated operation timestamp,
+    clearing lag, or hold confirmations) are NOT missed during incremental sync.
+    """
+    alice_key = test_setup["key_alice"]
+    alice_user = test_setup["alice"]
+    repo = test_setup["repo"]
+
+    # Suppose a delayed transaction occurred earlier (1772400000000), but was inserted/updated later (1772800000000)
+    tx_delayed = NormalizedTransaction(
+        bank_id="tx_delayed_delayed_001",
+        bank_name="ВТБ",
+        type=TransactionType.EXPENSE,
+        amount=450.0,
+        currency="RUB",
+        timestamp=1772400000000,  # Old transaction date! Before since_timestamp
+        description="Delayed Coffee Shop",
+        merchant="Coffee Shop",
+        card_last4="1111",
+        account_product_id="prod_alice_101",
+        user_id=alice_user.id,
+        created_at=1772800000000,  # Received recently! After since_timestamp
+        updated_at=1772800000000,
+    )
+    repo.save_normalized_transactions([tx_delayed], user_id=alice_user.id)
+
+    # Client queries since_timestamp=1772600000000 (after the transaction's timestamp, but before its updated_at)
+    res = client.get("/api/v1/transactions?since_timestamp=1772600000000", headers={"X-API-Key": alice_key})
+    assert res.status_code == 200
+    data = res.json()
+
+    # Both tx_a_103 (timestamp 1772700000000) AND tx_delayed (updated_at 1772800000000) must be captured!
+    captured_ids = {tx["bank_id"] for tx in data["items"]}
+    assert "tx_delayed_delayed_001" in captured_ids
+    assert "tx_a_103" in captured_ids
 
 
 def test_get_single_transaction_and_isolation(client, test_setup):
@@ -264,6 +330,7 @@ def test_get_single_transaction_and_isolation(client, test_setup):
     res = client.get("/api/v1/transactions/tx_a_101", headers={"X-API-Key": alice_key})
     assert res.status_code == 200
     assert res.json()["bank_id"] == "tx_a_101"
+    assert res.json()["account_product_id"] == "prod_alice_101"
 
     # Bob cannot access Alice's transaction -> returns 404 (not 403, for security obfuscation)
     res_cross = client.get("/api/v1/transactions/tx_a_101", headers={"X-API-Key": bob_key})
@@ -282,6 +349,7 @@ def test_get_single_account_and_isolation(client, test_setup):
     res = client.get("/api/v1/accounts/acc_alice_1", headers={"X-API-Key": alice_key})
     assert res.status_code == 200
     assert res.json()["id"] == "acc_alice_1"
+    assert res.json()["account_product_id"] == "prod_alice_101"
 
     # Bob cannot access Alice's account -> 404
     res_cross = client.get("/api/v1/accounts/acc_alice_1", headers={"X-API-Key": bob_key})

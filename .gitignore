@@ -73,3 +73,8 @@ logs/
 htmlcov/
 .idea/
 .vscode/
+
+# Local monorepo subfolder on developer machine
+sync-lab/
+.gradle/
+local.properties

@@ -50,25 +50,35 @@ class VtbAuthManager:
     async def start(self) -> Page:
         """
         Launches persistent Chromium context preserving user cookies / session.
+        Works seamlessly both in Windows desktop (headful) and Linux Docker (headless).
         """
-        logger.info("Initializing Chromium browser for VTB Online...")
+        logger.info(f"Initializing Chromium browser for VTB Online (headless={self.headless})...")
         self._playwright = await async_playwright().start()
 
-        # Launch persistent context with TLS/SSL error bypass for Russian CA certificates
-        self.context = await self._playwright.chromium.launch_persistent_context(
-            user_data_dir=str(self.user_data_dir),
-            headless=self.headless,
-            no_viewport=True,
-            ignore_https_errors=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
-                "--new-window",
-                "--ignore-certificate-errors",
-                "--ignore-certificate-errors-spki-list"
-            ],
-            locale="ru-RU"
-        )
+        browser_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--ignore-certificate-errors",
+            "--ignore-certificate-errors-spki-list",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ]
+        if not self.headless:
+            browser_args.extend(["--start-maximized", "--new-window"])
+
+        launch_kwargs = {
+            "user_data_dir": str(self.user_data_dir),
+            "headless": self.headless,
+            "ignore_https_errors": True,
+            "args": browser_args,
+            "locale": "ru-RU",
+        }
+        if self.headless:
+            launch_kwargs["viewport"] = {"width": 1920, "height": 1080}
+        else:
+            launch_kwargs["no_viewport"] = True
+
+        self.context = await self._playwright.chromium.launch_persistent_context(**launch_kwargs)
 
         # Hook network interception
         if self.context.pages:
@@ -113,7 +123,6 @@ class VtbAuthManager:
                     return True
 
             # Check DOM for authenticated elements (e.g., exit button, profile button, accounts list)
-            # Safe non-invasive checks
             is_logged_in = await self.page.evaluate("""() => {
                 const text = document.body ? document.body.innerText : '';
                 const hasExit = /выйти|выход|личный кабинет|счета и карты|мои продукты/i.test(text);

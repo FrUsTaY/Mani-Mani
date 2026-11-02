@@ -37,6 +37,7 @@ def test_vtb_real_api_structure_normalization(vtb_normalizer):
                 "isHold": False,
                 "status": "Processed",
                 "account": "*6708",
+                "accountProductId": "prod_1002345678",
                 "merchant": {"mcc": "5641", "title": "БубльГум"},
                 "parentCategory": {"id": 105, "name": "Детские товары"}
             }
@@ -49,6 +50,7 @@ def test_vtb_real_api_structure_normalization(vtb_normalizer):
     assert norm.type == TransactionType.EXPENSE
     assert norm.currency == "RUB"
     assert norm.account_last4 == "6708"
+    assert norm.account_product_id == "prod_1002345678"
     assert norm.mcc == 5641
     assert norm.fee == 0.0
     assert norm.status == "CONFIRMED"

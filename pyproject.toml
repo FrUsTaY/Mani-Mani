@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mani-mani-sync-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sync Lab for Mani-Mani: Researching direct bank sync (VTB Online & others)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ dependencies = [
     "playwright>=1.40.0",
     "pydantic>=2.6.0",
     "python-dateutil>=2.8.2",
+    "python-dotenv>=1.0.0",
     "rich>=13.7.0",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.28.0"
@@ -25,6 +26,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
